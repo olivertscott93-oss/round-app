@@ -12,9 +12,8 @@ type Asset = {
   current_estimated_value: number | null;
   purchase_url: string | null;
   receipt_url: string | null;
-  category?: {
-    name: string | null;
-  } | null;
+  // Supabase returns category:categories ( name ) as an array of rows
+  category?: { name: string | null }[] | null;
 };
 
 export default function DashboardPage() {
@@ -77,6 +76,11 @@ export default function DashboardPage() {
   const formatMoney = (value: number | null) => {
     if (value == null) return '—';
     return `£${value.toFixed(0)}`;
+  };
+
+  const getCategoryName = (asset: Asset) => {
+    if (!asset.category || asset.category.length === 0) return '—';
+    return asset.category[0]?.name ?? '—';
   };
 
   if (loading) return <div className="p-6">Loading…</div>;
@@ -144,9 +148,7 @@ export default function DashboardPage() {
                 onClick={() => router.push(`/assets/${asset.id}`)}
               >
                 <td className="py-2">{asset.title}</td>
-                <td className="py-2">
-                  {asset.category?.name ? asset.category.name : '—'}
-                </td>
+                <td className="py-2">{getCategoryName(asset)}</td>
                 <td className="py-2 capitalize">
                   {asset.status ?? 'unknown'}
                 </td>
