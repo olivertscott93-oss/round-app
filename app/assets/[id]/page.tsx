@@ -17,6 +17,7 @@ type Asset = {
   estimate_currency: string | null;
   purchase_url: string | null;
   receipt_url: string | null;
+  asset_type_id: string | null;
   // Supabase returns category:categories ( name ) as an array of rows
   category?: { name: string | null }[] | null;
 };
@@ -27,6 +28,15 @@ type Valuation = {
   currency: string | null;
   valuation_source: string | null;
   created_at: string;
+};
+
+type AssetType = {
+  id: string;
+  brand: string | null;
+  model_family: string | null;
+  model_code: string | null;
+  variant: string | null;
+  model_year: number | null;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
@@ -46,8 +56,20 @@ function computeIdentity(asset: Asset | null): {
     return {
       level: 'unknown',
       label: 'Identity: Unknown',
-      description: 'Round does not have enough information to identify this asset yet.',
+      description:
+        'Round does not have enough information to identify this asset yet.',
       colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+  }
+
+  // If this asset is linked to a catalog entry, treat it as strongest identity
+  if (asset.asset_type_id) {
+    return {
+      level: 'strong',
+      label: 'Identity: Exact match',
+      description:
+        'This asset is linked to a catalog identity. Round can treat this as an exact match when comparing and valuing.',
+      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
   }
 
@@ -96,7 +118,8 @@ function computeIdentity(asset: Asset | null): {
   return {
     level: 'unknown',
     label: 'Identity: Unknown',
-    description: 'Round does not have enough information to identify this asset yet.',
+    description:
+      'Round does not have enough information to identify this asset yet.',
     colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
   };
 }
@@ -108,6 +131,8 @@ export default function AssetDetailPage() {
 
   const [asset, setAsset] = useState<Asset | null>(null);
   const [valuations, setValuations] = useState<Valuation[]>([]);
+  const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
+  const [selectedAssetTypeId, setSelectedAssetTypeId] = useState<string | ''>('');
   const [userId, setUserId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -121,6 +146,10 @@ export default function AssetDetailPage() {
   const [valuationError, setValuationError] = useState<string | null>(null);
 
   const [deleting, setDeleting] = useState(false);
+
+  // Catalog link state
+  const [savingAssetType, setSavingAssetType] = useState(false);
+  const [assetTypeError, setAssetTypeError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -162,6 +191,7 @@ export default function AssetDetailPage() {
           estimate_currency,
           purchase_url,
           receipt_url,
+          asset_type_id,
           category:categories ( name )
         `
         )
@@ -175,7 +205,9 @@ export default function AssetDetailPage() {
         return;
       }
 
-      setAsset(assetData as Asset);
+      const typedAsset = assetData as Asset;
+      setAsset(typedAsset);
+      setSelectedAssetTypeId(typedAsset.asset_type_id ?? '');
 
       // Load valuations
       const { data: valuationData, error: valuationError } = await supabase
@@ -186,6 +218,18 @@ export default function AssetDetailPage() {
 
       if (!valuationError && valuationData) {
         setValuations(valuationData as Valuation[]);
+      }
+
+      // Load catalog asset types (for now: all of them)
+      const { data: typesData, error: typesError } = await supabase
+        .from('asset_types')
+        .select(
+          'id, brand, model_family, model_code, variant, model_year'
+        )
+        .order('brand', { ascending: true });
+
+      if (!typesError && typesData) {
+        setAssetTypes(typesData as AssetType[]);
       }
 
       setLoading(false);
@@ -270,6 +314,50 @@ export default function AssetDetailPage() {
     // keep currency as-is
   };
 
+  const handleSaveAssetType = async () => {
+    setAssetTypeError(null);
+
+    if (!asset) {
+      setAssetTypeError('Asset not loaded yet.');
+      return;
+    }
+
+    if (!selectedAssetTypeId) {
+      // Allow clearing the link
+      setSavingAssetType(true);
+      const { error } = await supabase
+        .from('assets')
+        .update({ asset_type_id: null })
+        .eq('id', asset.id);
+
+      setSavingAssetType(false);
+
+      if (error) {
+        setAssetTypeError('Could not clear catalog link. Please try again.');
+        return;
+      }
+
+      setAsset({ ...asset, asset_type_id: null });
+      return;
+    }
+
+    setSavingAssetType(true);
+
+    const { error } = await supabase
+      .from('assets')
+      .update({ asset_type_id: selectedAssetTypeId })
+      .eq('id', asset.id);
+
+    setSavingAssetType(false);
+
+    if (error) {
+      setAssetTypeError('Could not save catalog link. Please try again.');
+      return;
+    }
+
+    setAsset({ ...asset, asset_type_id: selectedAssetTypeId });
+  };
+
   if (loading) {
     return <div className="p-6">Loading asset…</div>;
   }
@@ -289,6 +377,9 @@ export default function AssetDetailPage() {
   }
 
   const identity = computeIdentity(asset);
+
+  // For now, show catalog selector to everyone; later this can be gated by email/flag if you want.
+  const showCatalogSection = true;
 
   return (
     <div className="space-y-6 p-6">
@@ -360,6 +451,74 @@ export default function AssetDetailPage() {
           </p>
         </div>
       </div>
+
+      {/* Canonical identity (catalog) – dev/admin-style controls */}
+      {showCatalogSection && (
+        <div className="rounded border p-4 text-sm bg-slate-50">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <p className="font-medium">Canonical identity (catalog)</p>
+              <p className="text-xs text-slate-600">
+                Link this asset to a catalog identity. In future, this will be
+                set automatically when Round recognises the exact product.
+              </p>
+            </div>
+          </div>
+
+          {assetTypes.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              You don&apos;t have any catalog entries yet. Add rows to
+              <span className="font-mono mx-1">asset_types</span> in Supabase
+              to start using this.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2 md:flex-row md:items-end">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-slate-600">
+                  Catalog identity
+                </label>
+                <select
+                  value={selectedAssetTypeId}
+                  onChange={e => setSelectedAssetTypeId(e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                >
+                  <option value="">No catalog link</option>
+                  {assetTypes.map(t => {
+                    const labelParts = [
+                      t.brand,
+                      t.model_family,
+                      t.variant,
+                      t.model_code,
+                      t.model_year ? `(${t.model_year})` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {labelParts || t.id}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div>
+                <button
+                  onClick={handleSaveAssetType}
+                  className="mt-4 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 md:mt-0"
+                  disabled={savingAssetType}
+                >
+                  {savingAssetType ? 'Saving…' : 'Save link'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {assetTypeError && (
+            <p className="mt-2 text-xs text-red-600">{assetTypeError}</p>
+          )}
+        </div>
+      )}
 
       {/* Links / docs */}
       <div className="rounded border p-4 text-sm">
