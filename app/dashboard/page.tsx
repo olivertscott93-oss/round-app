@@ -16,7 +16,6 @@ type Asset = {
   purchase_url: string | null;
   receipt_url: string | null;
   asset_type_id: string | null;
-  // Supabase returns category:categories ( name ) as an array of rows
   category?: { name: string | null }[] | null;
 };
 
@@ -31,7 +30,6 @@ function computeIdentity(asset: Asset): {
   level: IdentityLevel;
   colorClass: string;
 } {
-  // If linked to catalog, treat as strongest identity
   if (asset.asset_type_id) {
     return {
       level: 'strong',
@@ -159,6 +157,35 @@ export default function DashboardPage() {
     if (asset.asset_type_id) catalogMatches++;
   });
 
+  // Category composition
+  type CategorySummary = {
+    category: string;
+    count: number;
+    totalPurchase: number;
+    totalCurrent: number;
+  };
+
+  const categoryMap: Record<string, CategorySummary> = {};
+
+  assets.forEach(asset => {
+    const cat = getCategoryName(asset);
+    if (!categoryMap[cat]) {
+      categoryMap[cat] = {
+        category: cat,
+        count: 0,
+        totalPurchase: 0,
+        totalCurrent: 0,
+      };
+    }
+    categoryMap[cat].count += 1;
+    categoryMap[cat].totalPurchase += asset.purchase_price ?? 0;
+    categoryMap[cat].totalCurrent += asset.current_estimated_value ?? 0;
+  });
+
+  const categorySummaries = Object.values(categoryMap).sort(
+    (a, b) => b.totalCurrent - a.totalCurrent
+  );
+
   const formatMoney = (value: number | null | undefined) => {
     if (value == null) return '—';
     return `£${value.toFixed(0)}`;
@@ -265,6 +292,42 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Portfolio composition */}
+      {assetCount > 0 && categorySummaries.length > 0 && (
+        <div className="rounded border bg-slate-50 p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="font-medium">Portfolio composition</p>
+            <p className="text-xs text-slate-500">
+              How your portfolio breaks down by category.
+            </p>
+          </div>
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-1 text-left">Category</th>
+                <th className="py-1 text-right">Assets</th>
+                <th className="py-1 text-right">Purchase (£)</th>
+                <th className="py-1 text-right">Current (£)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categorySummaries.map(row => (
+                <tr key={row.category} className="border-b">
+                  <td className="py-1">{row.category}</td>
+                  <td className="py-1 text-right">{row.count}</td>
+                  <td className="py-1 text-right">
+                    {formatMoney(row.totalPurchase)}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatMoney(row.totalCurrent)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
