@@ -8,6 +8,9 @@ type Asset = {
   id: string;
   title: string;
   status: string | null;
+  brand: string | null;
+  model_name: string | null;
+  serial_number: string | null;
   purchase_price: number | null;
   current_estimated_value: number | null;
   purchase_url: string | null;
@@ -15,6 +18,56 @@ type Asset = {
   // Supabase returns category:categories ( name ) as an array of rows
   category?: { name: string | null }[] | null;
 };
+
+type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
+
+function getCategoryName(asset: Asset) {
+  if (!asset.category || asset.category.length === 0) return '—';
+  return asset.category[0]?.name ?? '—';
+}
+
+function computeIdentity(asset: Asset): {
+  level: IdentityLevel;
+  colorClass: string;
+} {
+  let score = 0;
+
+  const hasCategory = getCategoryName(asset) !== '—';
+  const hasBrand = !!asset.brand;
+  const hasModel = !!asset.model_name;
+  const hasSerial = !!asset.serial_number;
+
+  if (hasCategory) score++;
+  if (hasBrand) score++;
+  if (hasModel) score++;
+  if (hasSerial) score++;
+
+  if (score >= 4) {
+    return {
+      level: 'strong',
+      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    };
+  }
+
+  if (score >= 2) {
+    return {
+      level: 'good',
+      colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
+    };
+  }
+
+  if (score >= 1) {
+    return {
+      level: 'basic',
+      colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
+    };
+  }
+
+  return {
+    level: 'unknown',
+    colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+  };
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -39,6 +92,9 @@ export default function DashboardPage() {
           id,
           title,
           status,
+          brand,
+          model_name,
+          serial_number,
           purchase_price,
           current_estimated_value,
           purchase_url,
@@ -76,11 +132,6 @@ export default function DashboardPage() {
   const formatMoney = (value: number | null) => {
     if (value == null) return '—';
     return `£${value.toFixed(0)}`;
-  };
-
-  const getCategoryName = (asset: Asset) => {
-    if (!asset.category || asset.category.length === 0) return '—';
-    return asset.category[0]?.name ?? '—';
   };
 
   if (loading) return <div className="p-6">Loading…</div>;
@@ -133,6 +184,7 @@ export default function DashboardPage() {
           <thead>
             <tr className="border-b">
               <th className="py-2 text-left">Title</th>
+              <th className="py-2 text-left">Identity</th>
               <th className="py-2 text-left">Category</th>
               <th className="py-2 text-left">Status</th>
               <th className="py-2 text-right">Purchase (£)</th>
@@ -141,36 +193,68 @@ export default function DashboardPage() {
             </tr>
           </thead>
           <tbody>
-            {assets.map(asset => (
-              <tr
-                key={asset.id}
-                className="cursor-pointer border-b hover:bg-slate-50"
-                onClick={() => router.push(`/assets/${asset.id}`)}
-              >
-                <td className="py-2">{asset.title}</td>
-                <td className="py-2">{getCategoryName(asset)}</td>
-                <td className="py-2 capitalize">
-                  {asset.status ?? 'unknown'}
-                </td>
-                <td className="py-2 text-right">
-                  {formatMoney(asset.purchase_price)}
-                </td>
-                <td className="py-2 text-right">
-                  {formatMoney(asset.current_estimated_value)}
-                </td>
-                <td className="py-2 text-center">
-                  {asset.purchase_url && (
-                    <span title="Has purchase link" className="mr-1">
-                      🔗
+            {assets.map(asset => {
+              const identity = computeIdentity(asset);
+
+              const identityLabel =
+                identity.level === 'strong'
+                  ? 'Strong'
+                  : identity.level === 'good'
+                  ? 'Good'
+                  : identity.level === 'basic'
+                  ? 'Basic'
+                  : 'Unknown';
+
+              return (
+                <tr
+                  key={asset.id}
+                  className="cursor-pointer border-b hover:bg-slate-50"
+                  onClick={() => router.push(`/assets/${asset.id}`)}
+                >
+                  <td className="py-2">
+                    <div className="flex flex-col">
+                      <span>{asset.title}</span>
+                      {(asset.brand || asset.model_name) && (
+                        <span className="text-xs text-slate-500">
+                          {[asset.brand, asset.model_name]
+                            .filter(Boolean)
+                            .join(' ')}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${identity.colorClass}`}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {identityLabel}
                     </span>
-                  )}
-                  {asset.receipt_url && (
-                    <span title="Has receipt PDF">📄</span>
-                  )}
-                  {!asset.purchase_url && !asset.receipt_url && <span>—</span>}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="py-2">{getCategoryName(asset)}</td>
+                  <td className="py-2 capitalize">
+                    {asset.status ?? 'unknown'}
+                  </td>
+                  <td className="py-2 text-right">
+                    {formatMoney(asset.purchase_price)}
+                  </td>
+                  <td className="py-2 text-right">
+                    {formatMoney(asset.current_estimated_value)}
+                  </td>
+                  <td className="py-2 text-center">
+                    {asset.purchase_url && (
+                      <span title="Has purchase link" className="mr-1">
+                        🔗
+                      </span>
+                    )}
+                    {asset.receipt_url && (
+                      <span title="Has receipt PDF">📄</span>
+                    )}
+                    {!asset.purchase_url && !asset.receipt_url && <span>—</span>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
