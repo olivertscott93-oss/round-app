@@ -139,9 +139,43 @@ export default function DashboardPage() {
     0
   );
 
-  const formatMoney = (value: number | null) => {
+  const portfolioDelta = totalCurrent - totalPurchase;
+  const percentChange =
+    totalPurchase > 0 ? (portfolioDelta / totalPurchase) * 100 : null;
+
+  const assetCount = assets.length;
+
+  // Identity stats
+  let strongCount = 0;
+  let basicOrGoodCount = 0;
+  let catalogMatches = 0;
+
+  assets.forEach(asset => {
+    const identity = computeIdentity(asset);
+    if (identity.level === 'strong') strongCount++;
+    if (identity.level === 'basic' || identity.level === 'good') {
+      basicOrGoodCount++;
+    }
+    if (asset.asset_type_id) catalogMatches++;
+  });
+
+  const formatMoney = (value: number | null | undefined) => {
     if (value == null) return '—';
     return `£${value.toFixed(0)}`;
+  };
+
+  const formatDelta = (value: number) => {
+    if (value === 0) return '£0';
+    const prefix = value > 0 ? '+' : '−';
+    const abs = Math.abs(value);
+    return `${prefix}£${abs.toFixed(0)}`;
+  };
+
+  const formatPercent = (value: number | null) => {
+    if (value == null) return '—';
+    const prefix = value > 0 ? '+' : value < 0 ? '−' : '';
+    const abs = Math.abs(value);
+    return `${prefix}${abs.toFixed(1)}%`;
   };
 
   if (loading) return <div className="p-6">Loading…</div>;
@@ -185,6 +219,54 @@ export default function DashboardPage() {
           </span>
         </div>
       </div>
+
+      {/* Portfolio insights */}
+      {assetCount > 0 && (
+        <div className="rounded border bg-white p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="font-medium">Portfolio insights</p>
+            <p className="text-xs text-slate-500">
+              Based on your recorded purchase and current estimated values.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <p className="text-xs text-slate-500">
+                Overall gain / loss vs purchase
+              </p>
+              <p className="text-sm font-semibold">
+                {formatDelta(portfolioDelta)}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                {formatPercent(percentChange)} vs total purchase value
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-slate-500">Identity coverage</p>
+              <p className="text-sm font-semibold">
+                {strongCount}/{assetCount} assets
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                have <span className="font-medium">Strong</span> identity
+                (including catalog matches)
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-slate-500">Catalog matches</p>
+              <p className="text-sm font-semibold">
+                {catalogMatches}/{assetCount} assets
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                are linked to a catalog identity, ready for automated valuation
+                later.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       {assets.length === 0 ? (
@@ -246,6 +328,11 @@ export default function DashboardPage() {
                           {[asset.brand, asset.model_name]
                             .filter(Boolean)
                             .join(' ')}
+                        </span>
+                      )}
+                      {asset.asset_type_id && (
+                        <span className="text-[10px] uppercase tracking-wide text-emerald-700">
+                          Catalog match
                         </span>
                       )}
                     </div>
