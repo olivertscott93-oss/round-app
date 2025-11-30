@@ -459,6 +459,56 @@ export default function AssetDetailPage() {
 
   const showCatalogSection = true;
 
+  // Simple valuation stats for the insights panel
+  const hasValuations = valuations.length > 0;
+  const latestValuation = hasValuations ? valuations[0] : null;
+  const firstValuation = hasValuations
+    ? valuations[valuations.length - 1]
+    : null;
+
+  let minVal: number | null = null;
+  let maxVal: number | null = null;
+
+  if (hasValuations) {
+    valuations.forEach(v => {
+      if (v.suggested_value == null) return;
+      if (minVal === null || v.suggested_value < minVal) {
+        minVal = v.suggested_value;
+      }
+      if (maxVal === null || v.suggested_value > maxVal) {
+        maxVal = v.suggested_value;
+      }
+    });
+  }
+
+  const diff = (a: number | null, b: number | null) =>
+    a != null && b != null ? a - b : null;
+
+  const changeSinceFirst =
+    latestValuation && firstValuation
+      ? diff(latestValuation.suggested_value, firstValuation.suggested_value)
+      : null;
+
+  const changeVsPurchase =
+    latestValuation && asset.purchase_price != null
+      ? diff(latestValuation.suggested_value, asset.purchase_price)
+      : null;
+
+  const changeVsCurrentEstimate =
+    latestValuation && asset.current_estimated_value != null
+      ? diff(latestValuation.suggested_value, asset.current_estimated_value)
+      : null;
+
+  const formatDelta = (value: number | null, currency: string | null) => {
+    if (value == null) return '—';
+    const base = Math.abs(value);
+    const prefix = value > 0 ? '+' : value < 0 ? '−' : '';
+    const cur = currency ?? 'GBP';
+    const body =
+      cur === 'GBP' ? `£${base.toFixed(0)}` : `${cur} ${base.toFixed(0)}`;
+    return `${prefix}${body}`;
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -817,6 +867,81 @@ export default function AssetDetailPage() {
           </table>
         )}
       </div>
+
+      {/* Valuation insights */}
+      {hasValuations && (
+        <div className="rounded border bg-slate-50 p-4 text-sm">
+          <p className="mb-2 font-medium">Valuation insights</p>
+          <p className="mb-3 text-xs text-slate-600">
+            A quick view of how this asset&apos;s value is evolving based on
+            your snapshots.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs text-slate-500">Latest recorded value</p>
+              <p className="text-sm font-semibold">
+                {formatMoneyWithCurrency(
+                  latestValuation?.suggested_value ?? null,
+                  latestValuation?.currency ?? asset.estimate_currency
+                )}
+              </p>
+              {firstValuation && latestValuation && (
+                <p className="mt-1 text-xs text-slate-600">
+                  Change since first snapshot:{' '}
+                  <span className="font-medium">
+                    {formatDelta(
+                      changeSinceFirst,
+                      latestValuation.currency ?? asset.estimate_currency
+                    )}
+                  </span>
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Range across snapshots</p>
+              <p className="text-sm font-semibold">
+                {minVal != null && maxVal != null
+                  ? `${formatMoneyWithCurrency(
+                      minVal,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )} → ${formatMoneyWithCurrency(
+                      maxVal,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )}`
+                  : '—'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs text-slate-500">
+                Versus purchase price
+              </p>
+              <p className="text-sm font-semibold">
+                {asset.purchase_price == null
+                  ? '—'
+                  : formatDelta(
+                      changeVsPurchase,
+                      latestValuation?.currency ?? asset.purchase_currency
+                    )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">
+                Versus current estimate field
+              </p>
+              <p className="text-sm font-semibold">
+                {asset.current_estimated_value == null
+                  ? '—'
+                  : formatDelta(
+                      changeVsCurrentEstimate,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
