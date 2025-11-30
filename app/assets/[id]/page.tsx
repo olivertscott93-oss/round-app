@@ -17,6 +17,7 @@ type Asset = {
   estimate_currency: string | null;
   purchase_url: string | null;
   receipt_url: string | null;
+  notes_internal: string | null;
   asset_type_id: string | null;
   category?: { name: string | null }[] | null;
 };
@@ -61,6 +62,7 @@ function computeIdentity(asset: Asset | null): {
     };
   }
 
+  // If it’s already linked to a catalog identity, treat as strongest
   if (asset.asset_type_id) {
     return {
       level: 'strong',
@@ -131,7 +133,9 @@ export default function AssetDetailPage() {
   const [valuations, setValuations] = useState<Valuation[]>([]);
   const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
   const [relatedAssets, setRelatedAssets] = useState<Asset[]>([]);
-  const [selectedAssetTypeId, setSelectedAssetTypeId] = useState<string | ''>('');
+  const [selectedAssetTypeId, setSelectedAssetTypeId] = useState<string | ''>(
+    ''
+  );
   const [userId, setUserId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -171,6 +175,7 @@ export default function AssetDetailPage() {
 
       setUserId(user.id);
 
+      // Load asset
       const { data: assetData, error: assetError } = await supabase
         .from('assets')
         .select(
@@ -187,6 +192,7 @@ export default function AssetDetailPage() {
           estimate_currency,
           purchase_url,
           receipt_url,
+          notes_internal,
           asset_type_id,
           category:categories ( name )
         `
@@ -205,6 +211,7 @@ export default function AssetDetailPage() {
       setAsset(typedAsset);
       setSelectedAssetTypeId(typedAsset.asset_type_id ?? '');
 
+      // Load valuations
       const { data: valuationData, error: valuationError } = await supabase
         .from('valuations')
         .select('id, suggested_value, currency, valuation_source, created_at')
@@ -215,6 +222,7 @@ export default function AssetDetailPage() {
         setValuations(valuationData as Valuation[]);
       }
 
+      // Load asset types (catalog)
       const { data: typesData, error: typesError } = await supabase
         .from('asset_types')
         .select(
@@ -226,7 +234,7 @@ export default function AssetDetailPage() {
         setAssetTypes(typesData as AssetType[]);
       }
 
-      // Load other assets of the same type in this portfolio
+      // Load related assets of same type for this user
       if (typedAsset.asset_type_id) {
         const { data: relatedData, error: relatedError } = await supabase
           .from('assets')
@@ -271,7 +279,6 @@ export default function AssetDetailPage() {
 
     setDeleting(true);
     const { error } = await supabase.from('assets').delete().eq('id', asset.id);
-
     setDeleting(false);
 
     if (error) {
@@ -384,6 +391,7 @@ export default function AssetDetailPage() {
       return;
     }
 
+    // If cleared
     if (!selectedAssetTypeId) {
       setSavingAssetType(true);
       const { error } = await supabase
@@ -459,7 +467,7 @@ export default function AssetDetailPage() {
 
   const showCatalogSection = true;
 
-  // Simple valuation stats for the insights panel
+  // Valuation stats
   const hasValuations = valuations.length > 0;
   const latestValuation = hasValuations ? valuations[0] : null;
   const firstValuation = hasValuations
@@ -508,6 +516,13 @@ export default function AssetDetailPage() {
       cur === 'GBP' ? `£${base.toFixed(0)}` : `${cur} ${base.toFixed(0)}`;
     return `${prefix}${body}`;
   };
+
+  // Magic Import readiness
+  const hasContext =
+    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+
+  const magicReady =
+    (identity.level === 'good' || identity.level === 'strong') && hasContext;
 
   return (
     <div className="space-y-6 p-6">
@@ -586,9 +601,64 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
+      {/* Magic Import readiness */}
+      <div className="rounded border p-4 text-sm bg-white">
+        <div className="mb-2 flex items-center justify-between">
+          <div>
+            <p className="font-medium">Magic Import readiness</p>
+            <p className="text-xs text-slate-600">
+              Is Round ready to automatically recognise and value this asset?
+            </p>
+          </div>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+              magicReady
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {magicReady ? 'Ready for Magic Import' : 'Not ready yet'}
+          </span>
+        </div>
+        <ul className="mt-1 list-disc pl-4 text-xs text-slate-700">
+          <li>
+            Identity:{' '}
+            <span className="font-medium">
+              {identity.level === 'strong'
+                ? 'Strong / Exact'
+                : identity.level === 'good'
+                ? 'Good'
+                : identity.level === 'basic'
+                ? 'Basic'
+                : 'Unknown'}
+            </span>
+          </li>
+          <li>
+            Context sources:{' '}
+            <span className="font-medium">
+              {[
+                asset.purchase_url && 'Product / purchase URL',
+                asset.notes_internal && 'Email / notes',
+                asset.receipt_url && 'Receipt PDF',
+              ]
+                .filter(Boolean)
+                .join(', ') || 'None yet'}
+            </span>
+          </li>
+        </ul>
+        {!magicReady && (
+          <p className="mt-2 text-xs text-slate-500">
+            To get this asset ready, make sure it has brand, model and category
+            set, and add at least one context source: a product URL, email
+            text, or a receipt PDF.
+          </p>
+        )}
+      </div>
+
       {/* Canonical identity (catalog) */}
       {showCatalogSection && (
-        <div className="rounded border p-4 text-sm bg-slate-50">
+        <div className="rounded border bg-slate-50 p-4 text-sm">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <p className="font-medium">Canonical identity (catalog)</p>
@@ -602,7 +672,7 @@ export default function AssetDetailPage() {
           {assetTypes.length === 0 ? (
             <p className="text-xs text-slate-500">
               You don&apos;t have any catalog entries yet. Add rows to
-              <span className="font-mono mx-1">asset_types</span> in Supabase
+              <span className="mx-1 font-mono">asset_types</span> in Supabase
               to start using this.
             </p>
           ) : (
@@ -686,7 +756,7 @@ export default function AssetDetailPage() {
               {relatedAssets.map(a => (
                 <tr
                   key={a.id}
-                  className="border-b hover:bg-slate-50 cursor-pointer"
+                  className="cursor-pointer border-b hover:bg-slate-50"
                   onClick={() => router.push(`/assets/${a.id}`)}
                 >
                   <td className="py-1">
@@ -722,38 +792,50 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Documents */}
+      {/* Documents & context */}
       <div className="rounded border p-4 text-sm">
-        <p className="mb-2 font-medium">Documents</p>
-        <div className="flex flex-col gap-1 md:flex-row md:gap-4">
-          <div>
-            <span className="font-semibold">Purchase link: </span>
-            {asset.purchase_url ? (
-              <a
-                href={asset.purchase_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-600 underline"
-                onClick={e => e.stopPropagation()}
-              >
-                Open
-              </a>
-            ) : (
-              <span>—</span>
-            )}
+        <p className="mb-2 font-medium">Documents & context</p>
+        <div className="flex flex-col gap-2 text-xs text-slate-700">
+          <div className="flex flex-col gap-1 md:flex-row md:items-center md:gap-4">
+            <div>
+              <span className="font-semibold">Purchase link: </span>
+              {asset.purchase_url ? (
+                <a
+                  href={asset.purchase_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  Open
+                </a>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+            <div>
+              <span className="font-semibold">Receipt PDF: </span>
+              {asset.receipt_url ? (
+                <a
+                  href={asset.receipt_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  Open
+                </a>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
           </div>
           <div>
-            <span className="font-semibold">Receipt PDF: </span>
-            {asset.receipt_url ? (
-              <a
-                href={asset.receipt_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-600 underline"
-                onClick={e => e.stopPropagation()}
-              >
-                Open
-              </a>
+            <span className="font-semibold">Email / notes: </span>
+            {asset.notes_internal ? (
+              <span className="whitespace-pre-wrap">
+                {asset.notes_internal.length > 200
+                  ? asset.notes_internal.slice(0, 200) + '…'
+                  : asset.notes_internal}
+              </span>
             ) : (
               <span>—</span>
             )}
@@ -898,7 +980,9 @@ export default function AssetDetailPage() {
               )}
             </div>
             <div>
-              <p className="text-xs text-slate-500">Range across snapshots</p>
+              <p className="text-xs text-slate-500">
+                Range across snapshots
+              </p>
               <p className="text-sm font-semibold">
                 {minVal != null && maxVal != null
                   ? `${formatMoneyWithCurrency(
