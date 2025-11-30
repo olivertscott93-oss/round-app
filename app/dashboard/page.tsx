@@ -15,6 +15,7 @@ type Asset = {
   current_estimated_value: number | null;
   purchase_url: string | null;
   receipt_url: string | null;
+  asset_type_id: string | null;
   // Supabase returns category:categories ( name ) as an array of rows
   category?: { name: string | null }[] | null;
 };
@@ -30,6 +31,14 @@ function computeIdentity(asset: Asset): {
   level: IdentityLevel;
   colorClass: string;
 } {
+  // If linked to catalog, treat as strongest identity
+  if (asset.asset_type_id) {
+    return {
+      level: 'strong',
+      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    };
+  }
+
   let score = 0;
 
   const hasCategory = getCategoryName(asset) !== '—';
@@ -99,6 +108,7 @@ export default function DashboardPage() {
           current_estimated_value,
           purchase_url,
           receipt_url,
+          asset_type_id,
           category:categories ( name )
         `
         )
@@ -195,8 +205,9 @@ export default function DashboardPage() {
                     <p>
                       Identity shows how well Round understands each asset.
                       Basic = a starting point, Good = enough details for
-                      comparisons, Strong = brand, model, category and a unique
-                      identifier, making automated valuations more reliable.
+                      comparisons, Strong = either a rich description or a link
+                      to a catalog identity, making automated valuations more
+                      reliable.
                     </p>
                   </div>
                 </div>
