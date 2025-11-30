@@ -157,6 +157,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Identity explanation */}
+      <p className="text-xs text-slate-500">
+        <span className="font-medium">Identity</span> shows how well Round
+        understands each asset. Basic = a starting point, Good = enough details
+        for comparisons, Strong = Round has brand, model, category and a unique
+        identifier, making automated valuations more reliable.
+      </p>
+
       {/* Portfolio totals */}
       <div className="rounded border bg-slate-50 p-4 text-sm">
         <p className="mb-2 font-medium">Portfolio totals</p>
