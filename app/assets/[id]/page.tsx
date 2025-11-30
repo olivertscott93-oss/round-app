@@ -18,7 +18,6 @@ type Asset = {
   purchase_url: string | null;
   receipt_url: string | null;
   asset_type_id: string | null;
-  // Supabase returns category:categories ( name ) as an array of rows
   category?: { name: string | null }[] | null;
 };
 
@@ -62,7 +61,6 @@ function computeIdentity(asset: Asset | null): {
     };
   }
 
-  // If this asset is linked to a catalog entry, treat it as strongest identity
   if (asset.asset_type_id) {
     return {
       level: 'strong',
@@ -132,13 +130,13 @@ export default function AssetDetailPage() {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [valuations, setValuations] = useState<Valuation[]>([]);
   const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
+  const [relatedAssets, setRelatedAssets] = useState<Asset[]>([]);
   const [selectedAssetTypeId, setSelectedAssetTypeId] = useState<string | ''>('');
   const [userId, setUserId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  // New valuation form state
   const [newValue, setNewValue] = useState('');
   const [newCurrency, setNewCurrency] = useState('GBP');
   const [newSource, setNewSource] = useState('Manual – entered by you');
@@ -147,7 +145,6 @@ export default function AssetDetailPage() {
 
   const [deleting, setDeleting] = useState(false);
 
-  // Catalog link state
   const [savingAssetType, setSavingAssetType] = useState(false);
   const [assetTypeError, setAssetTypeError] = useState<string | null>(null);
 
@@ -174,7 +171,6 @@ export default function AssetDetailPage() {
 
       setUserId(user.id);
 
-      // Load asset
       const { data: assetData, error: assetError } = await supabase
         .from('assets')
         .select(
@@ -209,7 +205,6 @@ export default function AssetDetailPage() {
       setAsset(typedAsset);
       setSelectedAssetTypeId(typedAsset.asset_type_id ?? '');
 
-      // Load valuations
       const { data: valuationData, error: valuationError } = await supabase
         .from('valuations')
         .select('id, suggested_value, currency, valuation_source, created_at')
@@ -220,7 +215,6 @@ export default function AssetDetailPage() {
         setValuations(valuationData as Valuation[]);
       }
 
-      // Load catalog asset types (for now: all of them)
       const { data: typesData, error: typesError } = await supabase
         .from('asset_types')
         .select(
@@ -230,6 +224,34 @@ export default function AssetDetailPage() {
 
       if (!typesError && typesData) {
         setAssetTypes(typesData as AssetType[]);
+      }
+
+      // Load other assets of the same type in this portfolio
+      if (typedAsset.asset_type_id) {
+        const { data: relatedData, error: relatedError } = await supabase
+          .from('assets')
+          .select(
+            `
+            id,
+            title,
+            status,
+            brand,
+            model_name,
+            purchase_price,
+            current_estimated_value,
+            category:categories ( name )
+          `
+          )
+          .eq('owner_id', user.id)
+          .eq('asset_type_id', typedAsset.asset_type_id)
+          .neq('id', assetId)
+          .order('created_at', { ascending: false });
+
+        if (!relatedError && relatedData) {
+          setRelatedAssets(relatedData as Asset[]);
+        }
+      } else {
+        setRelatedAssets([]);
       }
 
       setLoading(false);
@@ -311,7 +333,47 @@ export default function AssetDetailPage() {
     setValuations(prev => [data as Valuation, ...prev]);
     setNewValue('');
     setNewSource('Manual – entered by you');
-    // keep currency as-is
+  };
+
+  const handleSnapshotFromCurrent = async () => {
+    setValuationError(null);
+
+    if (!asset || !userId) {
+      setValuationError('Not ready to add a valuation yet.');
+      return;
+    }
+
+    if (asset.current_estimated_value == null) {
+      setValuationError(
+        'No current estimated value to snapshot. Add one first.'
+      );
+      return;
+    }
+
+    setSavingValuation(true);
+
+    const { data, error } = await supabase
+      .from('valuations')
+      .insert([
+        {
+          asset_id: asset.id,
+          requested_by: userId,
+          suggested_value: asset.current_estimated_value,
+          currency: asset.estimate_currency || 'GBP',
+          valuation_source: 'Snapshot from current estimate',
+        },
+      ])
+      .select('id, suggested_value, currency, valuation_source, created_at')
+      .single();
+
+    setSavingValuation(false);
+
+    if (error || !data) {
+      setValuationError('Could not save snapshot. Please try again.');
+      return;
+    }
+
+    setValuations(prev => [data as Valuation, ...prev]);
   };
 
   const handleSaveAssetType = async () => {
@@ -323,7 +385,6 @@ export default function AssetDetailPage() {
     }
 
     if (!selectedAssetTypeId) {
-      // Allow clearing the link
       setSavingAssetType(true);
       const { error } = await supabase
         .from('assets')
@@ -338,6 +399,7 @@ export default function AssetDetailPage() {
       }
 
       setAsset({ ...asset, asset_type_id: null });
+      setRelatedAssets([]);
       return;
     }
 
@@ -378,7 +440,23 @@ export default function AssetDetailPage() {
 
   const identity = computeIdentity(asset);
 
-  // For now, show catalog selector to everyone; later this can be gated by email/flag if you want.
+  const matchedType =
+    asset.asset_type_id && assetTypes.length > 0
+      ? assetTypes.find(t => t.id === asset.asset_type_id)
+      : undefined;
+
+  const matchedTypeLabel =
+    matchedType &&
+    [
+      matchedType.brand,
+      matchedType.model_family,
+      matchedType.variant,
+      matchedType.model_code,
+      matchedType.model_year ? `(${matchedType.model_year})` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   const showCatalogSection = true;
 
   return (
@@ -400,6 +478,12 @@ export default function AssetDetailPage() {
             {asset.status ?? 'unknown'}
           </p>
           <p className="mt-1 text-xs text-slate-500">{identity.description}</p>
+          {matchedType && matchedTypeLabel && (
+            <p className="mt-1 text-xs text-emerald-700">
+              Matched to:{' '}
+              <span className="font-medium">{matchedTypeLabel}</span>
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -452,7 +536,7 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Canonical identity (catalog) – dev/admin-style controls */}
+      {/* Canonical identity (catalog) */}
       {showCatalogSection && (
         <div className="rounded border p-4 text-sm bg-slate-50">
           <div className="mb-2 flex items-center justify-between">
@@ -472,46 +556,54 @@ export default function AssetDetailPage() {
               to start using this.
             </p>
           ) : (
-            <div className="flex flex-col gap-2 md:flex-row md:items-end">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-slate-600">
-                  Catalog identity
-                </label>
-                <select
-                  value={selectedAssetTypeId}
-                  onChange={e => setSelectedAssetTypeId(e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                >
-                  <option value="">No catalog link</option>
-                  {assetTypes.map(t => {
-                    const labelParts = [
-                      t.brand,
-                      t.model_family,
-                      t.variant,
-                      t.model_code,
-                      t.model_year ? `(${t.model_year})` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ');
+            <>
+              <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-600">
+                    Catalog identity
+                  </label>
+                  <select
+                    value={selectedAssetTypeId}
+                    onChange={e => setSelectedAssetTypeId(e.target.value)}
+                    className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                  >
+                    <option value="">No catalog link</option>
+                    {assetTypes.map(t => {
+                      const labelParts = [
+                        t.brand,
+                        t.model_family,
+                        t.variant,
+                        t.model_code,
+                        t.model_year ? `(${t.model_year})` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ');
 
-                    return (
-                      <option key={t.id} value={t.id}>
-                        {labelParts || t.id}
-                      </option>
-                    );
-                  })}
-                </select>
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {labelParts || t.id}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <button
+                    onClick={handleSaveAssetType}
+                    className="mt-4 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 md:mt-0"
+                    disabled={savingAssetType}
+                  >
+                    {savingAssetType ? 'Saving…' : 'Save link'}
+                  </button>
+                </div>
               </div>
-              <div>
-                <button
-                  onClick={handleSaveAssetType}
-                  className="mt-4 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 md:mt-0"
-                  disabled={savingAssetType}
-                >
-                  {savingAssetType ? 'Saving…' : 'Save link'}
-                </button>
-              </div>
-            </div>
+              {matchedType && matchedTypeLabel && (
+                <p className="mt-2 text-xs text-emerald-700">
+                  Currently matched to:{' '}
+                  <span className="font-medium">{matchedTypeLabel}</span>
+                </p>
+              )}
+            </>
           )}
 
           {assetTypeError && (
@@ -520,7 +612,67 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Links / docs */}
+      {/* Other assets of this type */}
+      {asset.asset_type_id && relatedAssets.length > 0 && (
+        <div className="rounded border p-4 text-sm">
+          <p className="mb-2 font-medium">
+            Other assets of this type in your portfolio
+          </p>
+          <p className="mb-3 text-xs text-slate-600">
+            These assets are linked to the same catalog identity. In future,
+            Round can aggregate valuations and usage across all of them.
+          </p>
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-1 text-left">Title</th>
+                <th className="py-1 text-left">Category</th>
+                <th className="py-1 text-left">Status</th>
+                <th className="py-1 text-right">Purchase</th>
+                <th className="py-1 text-right">Current</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relatedAssets.map(a => (
+                <tr
+                  key={a.id}
+                  className="border-b hover:bg-slate-50 cursor-pointer"
+                  onClick={() => router.push(`/assets/${a.id}`)}
+                >
+                  <td className="py-1">
+                    <div className="flex flex-col">
+                      <span>{a.title}</span>
+                      {(a.brand || a.model_name) && (
+                        <span className="text-[10px] text-slate-500">
+                          {[a.brand, a.model_name].filter(Boolean).join(' ')}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-1">{getCategoryName(a)}</td>
+                  <td className="py-1 capitalize">
+                    {a.status ?? 'unknown'}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatMoneyWithCurrency(
+                      a.purchase_price,
+                      asset.purchase_currency
+                    )}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatMoneyWithCurrency(
+                      a.current_estimated_value,
+                      asset.estimate_currency
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Documents */}
       <div className="rounded border p-4 text-sm">
         <p className="mb-2 font-medium">Documents</p>
         <div className="flex flex-col gap-1 md:flex-row md:gap-4">
@@ -568,9 +720,16 @@ export default function AssetDetailPage() {
               Track how your estimate changes over time.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={handleSnapshotFromCurrent}
+            className="rounded border px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            disabled={savingValuation}
+          >
+            {savingValuation ? 'Saving…' : 'Snapshot from current estimate'}
+          </button>
         </div>
 
-        {/* Add valuation form */}
         <form
           onSubmit={handleAddValuation}
           className="mb-4 flex flex-col gap-2 md:flex-row md:items-end"
@@ -629,7 +788,6 @@ export default function AssetDetailPage() {
           <p className="mb-2 text-xs text-red-600">{valuationError}</p>
         )}
 
-        {/* Valuation list */}
         {valuations.length === 0 ? (
           <p className="text-xs text-slate-600">
             No valuations yet. Add your first estimate above.
