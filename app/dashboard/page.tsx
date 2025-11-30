@@ -157,14 +157,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Identity explanation */}
-      <p className="text-xs text-slate-500">
-        <span className="font-medium">Identity</span> shows how well Round
-        understands each asset. Basic = a starting point, Good = enough details
-        for comparisons, Strong = Round has brand, model, category and a unique
-        identifier, making automated valuations more reliable.
-      </p>
-
       {/* Portfolio totals */}
       <div className="rounded border bg-slate-50 p-4 text-sm">
         <p className="mb-2 font-medium">Portfolio totals</p>
@@ -192,7 +184,23 @@ export default function DashboardPage() {
           <thead>
             <tr className="border-b">
               <th className="py-2 text-left">Title</th>
-              <th className="py-2 text-left">Identity</th>
+              <th className="py-2 text-left">
+                <div className="relative inline-flex items-center gap-1 group">
+                  <span>Identity</span>
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full border text-[10px] text-slate-500 cursor-help">
+                    ?
+                  </span>
+                  <div className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-72 rounded border bg-white p-2 text-xs text-slate-700 shadow-lg group-hover:block">
+                    <p className="mb-1 font-medium">What is Identity?</p>
+                    <p>
+                      Identity shows how well Round understands each asset.
+                      Basic = a starting point, Good = enough details for
+                      comparisons, Strong = brand, model, category and a unique
+                      identifier, making automated valuations more reliable.
+                    </p>
+                  </div>
+                </div>
+              </th>
               <th className="py-2 text-left">Category</th>
               <th className="py-2 text-left">Status</th>
               <th className="py-2 text-right">Purchase (£)</th>
