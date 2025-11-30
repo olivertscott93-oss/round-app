@@ -8,6 +8,9 @@ type Asset = {
   id: string;
   title: string;
   status: string | null;
+  brand: string | null;
+  model_name: string | null;
+  serial_number: string | null;
   purchase_price: number | null;
   current_estimated_value: number | null;
   purchase_currency: string | null;
@@ -26,6 +29,78 @@ type Valuation = {
   created_at: string;
 };
 
+type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
+
+function getCategoryName(asset: Asset | null) {
+  if (!asset || !asset.category || asset.category.length === 0) return '—';
+  return asset.category[0]?.name ?? '—';
+}
+
+function computeIdentity(asset: Asset | null): {
+  level: IdentityLevel;
+  label: string;
+  description: string;
+  colorClass: string;
+} {
+  if (!asset) {
+    return {
+      level: 'unknown',
+      label: 'Identity: Unknown',
+      description: 'Round does not have enough information to identify this asset yet.',
+      colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+  }
+
+  let score = 0;
+
+  const hasCategory = !!getCategoryName(asset) && getCategoryName(asset) !== '—';
+  const hasBrand = !!asset.brand;
+  const hasModel = !!asset.model_name;
+  const hasSerial = !!asset.serial_number;
+
+  if (hasCategory) score++;
+  if (hasBrand) score++;
+  if (hasModel) score++;
+  if (hasSerial) score++;
+
+  if (score >= 4) {
+    return {
+      level: 'strong',
+      label: 'Identity: Strong match',
+      description:
+        'Round has brand, model, category and a unique identifier. This asset is ready for confident comparisons and valuations.',
+      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    };
+  }
+
+  if (score >= 2) {
+    return {
+      level: 'good',
+      label: 'Identity: Good',
+      description:
+        'Round has enough information to compare this asset, but adding any missing details will improve accuracy further.',
+      colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
+    };
+  }
+
+  if (score >= 1) {
+    return {
+      level: 'basic',
+      label: 'Identity: Basic',
+      description:
+        'Round has a starting point for this asset, but needs brand and model to really know what it is.',
+      colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
+    };
+  }
+
+  return {
+    level: 'unknown',
+    label: 'Identity: Unknown',
+    description: 'Round does not have enough information to identify this asset yet.',
+    colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+  };
+}
+
 export default function AssetDetailPage() {
   const router = useRouter();
   const params = useParams() as { id: string };
@@ -41,7 +116,7 @@ export default function AssetDetailPage() {
   // New valuation form state
   const [newValue, setNewValue] = useState('');
   const [newCurrency, setNewCurrency] = useState('GBP');
-  const [newSource, setNewSource] = useState('Manual');
+  const [newSource, setNewSource] = useState('Manual – entered by you');
   const [savingValuation, setSavingValuation] = useState(false);
   const [valuationError, setValuationError] = useState<string | null>(null);
 
@@ -78,6 +153,9 @@ export default function AssetDetailPage() {
           id,
           title,
           status,
+          brand,
+          model_name,
+          serial_number,
           purchase_price,
           current_estimated_value,
           purchase_currency,
@@ -148,11 +226,6 @@ export default function AssetDetailPage() {
     return `${cur} ${value.toFixed(0)}`;
   };
 
-  const getCategoryName = (asset: Asset | null) => {
-    if (!asset || !asset.category || asset.category.length === 0) return '—';
-    return asset.category[0]?.name ?? '—';
-  };
-
   const handleAddValuation = async (e: FormEvent) => {
     e.preventDefault();
     setValuationError(null);
@@ -178,7 +251,7 @@ export default function AssetDetailPage() {
           requested_by: userId,
           suggested_value: numeric,
           currency: newCurrency || 'GBP',
-          valuation_source: newSource || 'Manual',
+          valuation_source: newSource || 'Manual – entered by you',
         },
       ])
       .select('id, suggested_value, currency, valuation_source, created_at')
@@ -193,7 +266,7 @@ export default function AssetDetailPage() {
 
     setValuations(prev => [data as Valuation, ...prev]);
     setNewValue('');
-    setNewSource('Manual');
+    setNewSource('Manual – entered by you');
     // keep currency as-is
   };
 
@@ -215,16 +288,27 @@ export default function AssetDetailPage() {
     );
   }
 
+  const identity = computeIdentity(asset);
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-semibold">{asset.title}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">{asset.title}</h1>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${identity.colorClass}`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {identity.label}
+            </span>
+          </div>
           <p className="text-sm text-slate-600">
             Category: {getCategoryName(asset)} · Status:{' '}
             {asset.status ?? 'unknown'}
           </p>
+          <p className="mt-1 text-xs text-slate-500">{identity.description}</p>
         </div>
         <div className="flex gap-2">
           <button
