@@ -15,6 +15,7 @@ type Asset = {
   current_estimated_value: number | null;
   purchase_url: string | null;
   receipt_url: string | null;
+  notes_internal: string | null;
   asset_type_id: string | null;
   category?: { name: string | null }[] | null;
 };
@@ -30,6 +31,7 @@ function computeIdentity(asset: Asset): {
   level: IdentityLevel;
   colorClass: string;
 } {
+  // Catalog-linked assets are treated as strongest identity
   if (asset.asset_type_id) {
     return {
       level: 'strong',
@@ -76,6 +78,16 @@ function computeIdentity(asset: Asset): {
   };
 }
 
+// Magic Import readiness rule
+function isMagicReady(asset: Asset): boolean {
+  const identity = computeIdentity(asset);
+  const hasContext =
+    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+  return (
+    (identity.level === 'good' || identity.level === 'strong') && hasContext
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -106,6 +118,7 @@ export default function DashboardPage() {
           current_estimated_value,
           purchase_url,
           receipt_url,
+          notes_internal,
           asset_type_id,
           category:categories ( name )
         `
@@ -143,10 +156,10 @@ export default function DashboardPage() {
 
   const assetCount = assets.length;
 
-  // Identity stats
   let strongCount = 0;
   let basicOrGoodCount = 0;
   let catalogMatches = 0;
+  let magicReadyCount = 0;
 
   assets.forEach(asset => {
     const identity = computeIdentity(asset);
@@ -155,9 +168,9 @@ export default function DashboardPage() {
       basicOrGoodCount++;
     }
     if (asset.asset_type_id) catalogMatches++;
+    if (isMagicReady(asset)) magicReadyCount++;
   });
 
-  // Category composition
   type CategorySummary = {
     category: string;
     count: number;
@@ -257,7 +270,7 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div>
               <p className="text-xs text-slate-500">
                 Overall gain / loss vs purchase
@@ -289,6 +302,17 @@ export default function DashboardPage() {
               <p className="mt-1 text-xs text-slate-600">
                 are linked to a catalog identity, ready for automated valuation
                 later.
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-slate-500">Magic Import ready</p>
+              <p className="text-sm font-semibold">
+                {magicReadyCount}/{assetCount} assets
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                have strong identity plus at least one context source (URL,
+                email/notes or receipt).
               </p>
             </div>
           </div>
@@ -367,7 +391,6 @@ export default function DashboardPage() {
           <tbody>
             {assets.map(asset => {
               const identity = computeIdentity(asset);
-
               const identityLabel =
                 identity.level === 'strong'
                   ? 'Strong'
@@ -376,6 +399,8 @@ export default function DashboardPage() {
                   : identity.level === 'basic'
                   ? 'Basic'
                   : 'Unknown';
+
+              const magicReady = isMagicReady(asset);
 
               return (
                 <tr
@@ -396,6 +421,11 @@ export default function DashboardPage() {
                       {asset.asset_type_id && (
                         <span className="text-[10px] uppercase tracking-wide text-emerald-700">
                           Catalog match
+                        </span>
+                      )}
+                      {magicReady && (
+                        <span className="text-[10px] uppercase tracking-wide text-indigo-700">
+                          Magic-Ready
                         </span>
                       )}
                     </div>
