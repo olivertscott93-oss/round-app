@@ -222,8 +222,7 @@ function computeRuleBasedValuation(asset: Asset): {
     }
   }
 
-  const condition =
-    (asset.current_condition || 'unknown').toLowerCase();
+  const condition = (asset.current_condition || 'unknown').toLowerCase();
 
   // Condition multipliers (standard)
   const conditionMultipliers: Record<string, number> = {
@@ -265,7 +264,6 @@ function computeRuleBasedValuation(asset: Asset): {
     if (value > cap) value = cap;
 
     profileLabel = 'appreciating asset (e.g. property)';
-
   } else if (profile === 'DEPRECIATING') {
     // Depreciating assets – faster early drop, then slower
     const earlyYears = Math.min(years, 3);
@@ -275,7 +273,7 @@ function computeRuleBasedValuation(asset: Asset): {
     value = basePrice * Math.pow(1 - 0.25, earlyYears);
 
     // ~10% per year afterwards
-    value = value * Math.pow(1 - 0.10, laterYears);
+    value = value * Math.pow(1 - 0.1, laterYears);
 
     // Floor at 10% of original
     const floor = basePrice * 0.1;
@@ -285,10 +283,9 @@ function computeRuleBasedValuation(asset: Asset): {
     value = value * conditionMultiplier;
 
     profileLabel = 'depreciating asset (e.g. car / electronics)';
-
   } else {
     // NEUTRAL – mild decline over time
-    const neutralRate = 0.10; // 10% per year
+    const neutralRate = 0.1; // 10% per year
     value = basePrice * Math.pow(1 - neutralRate, years);
 
     // Floor at 30% of original
@@ -652,4 +649,778 @@ export default function AssetDetailPage() {
     const hasContext =
       !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
 
-    const magicReady
+    const magicReady =
+      (identity.level === 'good' || identity.level === 'strong') && hasContext;
+
+    if (!magicReady) {
+      setIngestionError(
+        'This asset is not Magic-Ready yet. Add brand, model, category and a context source first.'
+      );
+      return;
+    }
+
+    setCreatingIngestion(true);
+
+    const { data, error } = await supabase
+      .from('ingestions')
+      .insert([
+        {
+          asset_id: asset.id,
+          owner_id: userId,
+          status: 'pending',
+        },
+      ])
+      .select('id, status, created_at, finished_at')
+      .single();
+
+    setCreatingIngestion(false);
+
+    if (error || !data) {
+      setIngestionError(
+        'Could not create Magic Import request. Please try again.'
+      );
+      return;
+    }
+
+    setIngestions(prev => [data as Ingestion, ...prev]);
+  };
+
+  const handleProcessMagicImport = async () => {
+    setIngestionError(null);
+
+    if (!asset || !userId) {
+      setIngestionError('Not ready to process Magic Import yet.');
+      return;
+    }
+
+    const pendingJob = ingestions.find(j => j.status === 'pending');
+    if (!pendingJob) {
+      setIngestionError('No pending Magic Import requests for this asset.');
+      return;
+    }
+
+    setProcessingMagic(true);
+
+    try {
+      const valuationSpec = computeRuleBasedValuation(asset);
+
+      const { data: valuationData, error: valError } = await supabase
+        .from('valuations')
+        .insert([
+          {
+            asset_id: asset.id,
+            requested_by: userId,
+            suggested_value: Math.round(valuationSpec.value),
+            currency: valuationSpec.currency,
+            valuation_source: valuationSpec.source,
+          },
+        ])
+        .select('id, suggested_value, currency, valuation_source, created_at')
+        .single();
+
+      if (valError || !valuationData) {
+        setIngestionError(
+          'Could not create valuation from Magic Import. Please try again.'
+        );
+        setProcessingMagic(false);
+        return;
+      }
+
+      const { data: updatedJob, error: updError } = await supabase
+        .from('ingestions')
+        .update({
+          status: 'complete',
+          finished_at: new Date().toISOString(),
+        })
+        .eq('id', pendingJob.id)
+        .select('id, status, created_at, finished_at')
+        .single();
+
+      if (updError || !updatedJob) {
+        setIngestionError(
+          'Valuation saved, but could not update Magic Import job status.'
+        );
+      }
+
+      setValuations(prev => [valuationData as Valuation, ...prev]);
+
+      if (updatedJob) {
+        setIngestions(prev =>
+          prev.map(j =>
+            j.id === updatedJob.id ? (updatedJob as Ingestion) : j
+          )
+        );
+      }
+    } finally {
+      setProcessingMagic(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6">Loading asset…</div>;
+  }
+
+  if (pageError || !asset) {
+    return (
+      <div className="p-6">
+        <p className="mb-4 text-red-600">{pageError ?? 'Asset not found.'}</p>
+        <button
+          className="rounded border px-3 py-2 text-sm"
+          onClick={() => router.push('/dashboard')}
+        >
+          Back to dashboard
+        </button>
+      </div>
+    );
+  }
+
+  const identity = computeIdentity(asset);
+
+  const matchedType =
+    asset.asset_type_id && assetTypes.length > 0
+      ? assetTypes.find(t => t.id === asset.asset_type_id)
+      : undefined;
+
+  const matchedTypeLabel =
+    matchedType &&
+    [
+      matchedType.brand,
+      matchedType.model_family,
+      matchedType.variant,
+      matchedType.model_code,
+      matchedType.model_year ? `(${matchedType.model_year})` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+  const showCatalogSection = true;
+
+  const hasValuations = valuations.length > 0;
+  const latestValuation = hasValuations ? valuations[0] : null;
+  const firstValuation = hasValuations
+    ? valuations[valuations.length - 1]
+    : null;
+
+  let minVal: number | null = null;
+  let maxVal: number | null = null;
+
+  if (hasValuations) {
+    valuations.forEach(v => {
+      if (v.suggested_value == null) return;
+      if (minVal === null || v.suggested_value < minVal) {
+        minVal = v.suggested_value;
+      }
+      if (maxVal === null || v.suggested_value > maxVal) {
+        maxVal = v.suggested_value;
+      }
+    });
+  }
+
+  const diff = (a: number | null, b: number | null) =>
+    a != null && b != null ? a - b : null;
+
+  const changeSinceFirst =
+    latestValuation && firstValuation
+      ? diff(latestValuation.suggested_value, firstValuation.suggested_value)
+      : null;
+
+  const changeVsPurchase =
+    latestValuation && asset.purchase_price != null
+      ? diff(latestValuation.suggested_value, asset.purchase_price)
+      : null;
+
+  const changeVsCurrentEstimate =
+    latestValuation && asset.current_estimated_value != null
+      ? diff(latestValuation.suggested_value, asset.current_estimated_value)
+      : null;
+
+  const hasContext =
+    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+
+  const magicReady =
+    (identity.level === 'good' || identity.level === 'strong') && hasContext;
+
+  const matchedTypeLabelExists = Boolean(matchedType && matchedTypeLabel);
+
+  const hasIngestions = ingestions.length > 0;
+  const hasPendingIngestion = ingestions.some(j => j.status === 'pending');
+
+  return (
+    <div className="space-y-6 p-6">
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">{asset.title}</h1>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${identity.colorClass}`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {identity.label}
+            </span>
+          </div>
+          <p className="text-sm text-slate-600">
+            Category: {getCategoryName(asset)} · Status:{' '}
+            {asset.status ?? 'unknown'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">{identity.description}</p>
+          {matchedTypeLabelExists && (
+            <p className="mt-1 text-xs text-emerald-700">
+              Matched to:{' '}
+              <span className="font-medium">{matchedTypeLabel}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            className="rounded border px-3 py-2 text-sm"
+            onClick={() => router.push('/dashboard')}
+          >
+            Back
+          </button>
+          <button
+            className="rounded border px-3 py-2 text-sm"
+            onClick={() => router.push(`/assets/${asset.id}/edit`)}
+          >
+            Edit
+          </button>
+          <button
+            className="rounded bg-red-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+            onClick={handleDelete}
+            disabled={deleting}
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+
+      {/* Value summary */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded border p-4 text-sm">
+          <p className="mb-1 font-medium">Purchase</p>
+          <p>
+            Value:{' '}
+            <span className="font-semibold">
+              {formatMoneyWithCurrency(
+                asset.purchase_price,
+                asset.purchase_currency
+              )}
+            </span>
+          </p>
+          {asset.purchase_date && (
+            <p className="mt-1 text-xs text-slate-600">
+              Purchased:{' '}
+              {new Date(asset.purchase_date).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+        <div className="rounded border p-4 text-sm">
+          <p className="mb-1 font-medium">Current estimated value</p>
+          <p>
+            Value:{' '}
+            <span className="font-semibold">
+              {formatMoneyWithCurrency(
+                asset.current_estimated_value,
+                asset.estimate_currency
+              )}
+            </span>
+          </p>
+          {asset.current_condition && (
+            <p className="mt-1 text-xs text-slate-600">
+              Condition: {asset.current_condition}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Magic Import readiness */}
+      <div className="rounded border bg-white p-4 text-sm">
+        <div className="mb-2 flex items-center justify-between">
+          <div>
+            <p className="font-medium">Magic Import readiness</p>
+            <p className="text-xs text-slate-600">
+              Is Round ready to automatically recognise and value this asset?
+            </p>
+          </div>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+              magicReady
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {magicReady ? 'Ready for Magic Import' : 'Not ready yet'}
+          </span>
+        </div>
+        <ul className="mt-1 list-disc pl-4 text-xs text-slate-700">
+          <li>
+            Identity:{' '}
+            <span className="font-medium">
+              {identity.level === 'strong'
+                ? 'Strong / Exact'
+                : identity.level === 'good'
+                ? 'Good'
+                : identity.level === 'basic'
+                ? 'Basic'
+                : 'Unknown'}
+            </span>
+          </li>
+          <li>
+            Context sources:{' '}
+            <span className="font-medium">
+              {[
+                asset.purchase_url && 'Product / purchase URL',
+                asset.notes_internal && 'Email / notes',
+                asset.receipt_url && 'Receipt PDF',
+              ]
+                .filter(Boolean)
+                .join(', ') || 'None yet'}
+            </span>
+          </li>
+        </ul>
+        {!magicReady && (
+          <p className="mt-2 text-xs text-slate-500">
+            To get this asset ready, make sure it has brand, model and category
+            set, and add at least one context source: a product URL, email
+            text, or a receipt PDF.
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleRunMagicImport}
+              disabled={creatingIngestion || !asset || !userId}
+              className="rounded bg-black px-4 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {creatingIngestion
+                ? 'Creating Magic Import…'
+                : 'Run Magic Import'}
+            </button>
+            <button
+              type="button"
+              onClick={handleProcessMagicImport}
+              disabled={
+                processingMagic || !asset || !userId || !hasPendingIngestion
+              }
+              className="rounded border px-4 py-2 text-xs font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {processingMagic
+                ? 'Processing Magic Import…'
+                : hasPendingIngestion
+                ? 'Process Magic Import (demo)'
+                : 'No pending jobs'}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 md:text-right">
+            In this MVP, Magic Import creates a request record and this demo
+            processor uses simple value profiles (depreciating / neutral /
+            appreciating), age and condition to generate a placeholder
+            valuation. Later, this will be powered by real market data and AI.
+          </p>
+        </div>
+
+        {ingestionError && (
+          <p className="mt-2 text-xs text-red-600">{ingestionError}</p>
+        )}
+
+        {hasIngestions && (
+          <div className="mt-3 border-t pt-3">
+            <p className="mb-1 text-xs font-medium text-slate-700">
+              Magic Import requests
+            </p>
+            <ul className="space-y-1 text-xs text-slate-700">
+              {ingestions.map(job => (
+                <li key={job.id} className="flex justify-between">
+                  <span>
+                    {new Date(job.created_at).toLocaleString()} –{' '}
+                    <span className="capitalize">{job.status}</span>
+                  </span>
+                  {job.finished_at && (
+                    <span className="text-[10px] text-slate-500">
+                      Completed:{' '}
+                      {new Date(job.finished_at).toLocaleString()}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Canonical identity (catalog) */}
+      {showCatalogSection && (
+        <div className="rounded border bg-slate-50 p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <p className="font-medium">Canonical identity (catalog)</p>
+              <p className="text-xs text-slate-600">
+                Link this asset to a catalog identity. In future, this will be
+                set automatically when Round recognises the exact product.
+              </p>
+            </div>
+          </div>
+
+          {assetTypes.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              You don&apos;t have any catalog entries yet. Add rows to
+              <span className="mx-1 font-mono">asset_types</span> in Supabase
+              to start using this.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-600">
+                    Catalog identity
+                  </label>
+                  <select
+                    value={selectedAssetTypeId}
+                    onChange={e => setSelectedAssetTypeId(e.target.value)}
+                    className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                  >
+                    <option value="">No catalog link</option>
+                    {assetTypes.map(t => {
+                      const labelParts = [
+                        t.brand,
+                        t.model_family,
+                        t.variant,
+                        t.model_code,
+                        t.model_year ? `(${t.model_year})` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ');
+
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {labelParts || t.id}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <button
+                    onClick={handleSaveAssetType}
+                    className="mt-4 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 md:mt-0"
+                    disabled={savingAssetType}
+                  >
+                    {savingAssetType ? 'Saving…' : 'Save link'}
+                  </button>
+                </div>
+              </div>
+              {matchedTypeLabelExists && (
+                <p className="mt-2 text-xs text-emerald-700">
+                  Currently matched to:{' '}
+                  <span className="font-medium">{matchedTypeLabel}</span>
+                </p>
+              )}
+            </>
+          )}
+
+          {assetTypeError && (
+            <p className="mt-2 text-xs text-red-600">{assetTypeError}</p>
+          )}
+        </div>
+      )}
+
+      {/* Other assets of this type */}
+      {asset.asset_type_id && relatedAssets.length > 0 && (
+        <div className="rounded border p-4 text-sm">
+          <p className="mb-2 font-medium">
+            Other assets of this type in your portfolio
+          </p>
+          <p className="mb-3 text-xs text-slate-600">
+            These assets are linked to the same catalog identity. In future,
+            Round can aggregate valuations and usage across all of them.
+          </p>
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-1 text-left">Title</th>
+                <th className="py-1 text-left">Category</th>
+                <th className="py-1 text-left">Status</th>
+                <th className="py-1 text-right">Purchase</th>
+                <th className="py-1 text-right">Current</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relatedAssets.map(a => (
+                <tr
+                  key={a.id}
+                  className="cursor-pointer border-b hover:bg-slate-50"
+                  onClick={() => router.push(`/assets/${a.id}`)}
+                >
+                  <td className="py-1">
+                    <div className="flex flex-col">
+                      <span>{a.title}</span>
+                      {(a.brand || a.model_name) && (
+                        <span className="text-[10px] text-slate-500">
+                          {[a.brand, a.model_name].filter(Boolean).join(' ')}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-1">{getCategoryName(a)}</td>
+                  <td className="py-1 capitalize">
+                    {a.status ?? 'unknown'}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatMoneyWithCurrency(
+                      a.purchase_price,
+                      asset.purchase_currency
+                    )}
+                  </td>
+                  <td className="py-1 text-right">
+                    {formatMoneyWithCurrency(
+                      a.current_estimated_value,
+                      asset.estimate_currency
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Documents & context */}
+      <div className="rounded border p-4 text-sm">
+        <p className="mb-2 font-medium">Documents & context</p>
+        <div className="flex flex-col gap-2 text-xs text-slate-700">
+          <div className="flex flex-col gap-1 md:flex-row md:items-center md:gap-4">
+            <div>
+              <span className="font-semibold">Purchase link: </span>
+              {asset.purchase_url ? (
+                <a
+                  href={asset.purchase_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  Open
+                </a>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+            <div>
+              <span className="font-semibold">Receipt PDF: </span>
+              {asset.receipt_url ? (
+                <a
+                  href={asset.receipt_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  Open
+                </a>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <span className="font-semibold">Email / notes: </span>
+            {asset.notes_internal ? (
+              <span className="whitespace-pre-wrap">
+                {asset.notes_internal.length > 200
+                  ? asset.notes_internal.slice(0, 200) + '…'
+                  : asset.notes_internal}
+              </span>
+            ) : (
+              <span>—</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Valuation history */}
+      <div className="rounded border p-4 text-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="font-medium">Valuation history</p>
+            <p className="text-xs text-slate-600">
+              Track how your estimate changes over time.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSnapshotFromCurrent}
+            className="rounded border px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            disabled={savingValuation}
+          >
+            {savingValuation ? 'Saving…' : 'Snapshot from current estimate'}
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleAddValuation}
+          className="mb-4 flex flex-col gap-2 md:flex-row md:items-end"
+        >
+          <div>
+            <label className="block text-xs font-medium text-slate-600">
+              Value
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={newValue}
+              onChange={e => setNewValue(e.target.value)}
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              placeholder="e.g. 1200"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600">
+              Currency
+            </label>
+            <select
+              value={newCurrency}
+              onChange={e => setNewCurrency(e.target.value)}
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+            >
+              <option value="GBP">GBP (£)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="USD">USD ($)</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-slate-600">
+              Source
+            </label>
+            <input
+              type="text"
+              value={newSource}
+              onChange={e => setNewSource(e.target.value)}
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              placeholder="Manual, Marketplace scan, Dealer quote…"
+            />
+          </div>
+          <div>
+            <button
+              type="submit"
+              className="mt-4 rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 md:mt-0"
+              disabled={savingValuation}
+            >
+              {savingValuation ? 'Saving…' : '+ Add valuation'}
+            </button>
+          </div>
+        </form>
+
+        {valuationError && (
+          <p className="mb-2 text-xs text-red-600">{valuationError}</p>
+        )}
+
+        {valuations.length === 0 ? (
+          <p className="text-xs text-slate-600">
+            No valuations yet. Add your first estimate above.
+          </p>
+        ) : (
+          <table className="mt-2 w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-1 text-left">Date</th>
+                <th className="py-1 text-left">Source</th>
+                <th className="py-1 text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {valuations.map(v => (
+                <tr key={v.id} className="border-b">
+                  <td className="py-1">
+                    {new Date(v.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="py-1">{v.valuation_source ?? '—'}</td>
+                  <td className="py-1 text-right">
+                    {formatMoneyWithCurrency(v.suggested_value, v.currency)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Valuation insights */}
+      {hasValuations && (
+        <div className="rounded border bg-slate-50 p-4 text-sm">
+          <p className="mb-2 font-medium">Valuation insights</p>
+          <p className="mb-3 text-xs text-slate-600">
+            A quick view of how this asset&apos;s value is evolving based on
+            your snapshots.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs text-slate-500">Latest recorded value</p>
+              <p className="text-sm font-semibold">
+                {formatMoneyWithCurrency(
+                  latestValuation?.suggested_value ?? null,
+                  latestValuation?.currency ?? asset.estimate_currency
+                )}
+              </p>
+              {firstValuation && latestValuation && (
+                <p className="mt-1 text-xs text-slate-600">
+                  Change since first snapshot:{' '}
+                  <span className="font-medium">
+                    {formatDelta(
+                      changeSinceFirst,
+                      latestValuation.currency ?? asset.estimate_currency
+                    )}
+                  </span>
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">
+                Range across snapshots
+              </p>
+              <p className="text-sm font-semibold">
+                {minVal != null && maxVal != null
+                  ? `${formatMoneyWithCurrency(
+                      minVal,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )} → ${formatMoneyWithCurrency(
+                      maxVal,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )}`
+                  : '—'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs text-slate-500">
+                Versus purchase price
+              </p>
+              <p className="text-sm font-semibold">
+                {asset.purchase_price == null
+                  ? '—'
+                  : formatDelta(
+                      changeVsPurchase,
+                      latestValuation?.currency ?? asset.purchase_currency
+                    )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">
+                Versus current estimate field
+              </p>
+              <p className="text-sm font-semibold">
+                {asset.current_estimated_value == null
+                  ? '—'
+                  : formatDelta(
+                      changeVsCurrentEstimate,
+                      latestValuation?.currency ?? asset.estimate_currency
+                    )}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
