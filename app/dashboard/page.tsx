@@ -12,36 +12,53 @@ type Asset = {
   model_name: string | null;
   serial_number: string | null;
   purchase_price: number | null;
+  purchase_currency: string | null;
   current_estimated_value: number | null;
+  estimate_currency: string | null;
   purchase_url: string | null;
   receipt_url: string | null;
   notes_internal: string | null;
   asset_type_id: string | null;
-  category?: { name: string | null }[] | null;
+  category?: {
+    name: string | null;
+  }[] | null;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-function getCategoryName(asset: Asset) {
-  if (!asset.category || asset.category.length === 0) return '—';
+function getCategoryName(asset: Asset | null) {
+  if (!asset || !asset.category || asset.category.length === 0) return '—';
   return asset.category[0]?.name ?? '—';
 }
 
-function computeIdentity(asset: Asset): {
+function computeIdentity(asset: Asset | null): {
   level: IdentityLevel;
+  label: string;
+  shortLabel: string;
   colorClass: string;
 } {
-  // Catalog-linked assets are treated as strongest identity
+  if (!asset) {
+    return {
+      level: 'unknown',
+      label: 'Identity: Unknown',
+      shortLabel: 'Unknown',
+      colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+  }
+
   if (asset.asset_type_id) {
     return {
       level: 'strong',
+      label: 'Identity: Exact match',
+      shortLabel: 'Exact',
       colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
   }
 
   let score = 0;
 
-  const hasCategory = getCategoryName(asset) !== '—';
+  const categoryName = getCategoryName(asset);
+  const hasCategory = !!categoryName && categoryName !== '—';
   const hasBrand = !!asset.brand;
   const hasModel = !!asset.model_name;
   const hasSerial = !!asset.serial_number;
@@ -54,6 +71,8 @@ function computeIdentity(asset: Asset): {
   if (score >= 4) {
     return {
       level: 'strong',
+      label: 'Identity: Strong match',
+      shortLabel: 'Strong',
       colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
   }
@@ -61,6 +80,8 @@ function computeIdentity(asset: Asset): {
   if (score >= 2) {
     return {
       level: 'good',
+      label: 'Identity: Good',
+      shortLabel: 'Good',
       colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
     };
   }
@@ -68,23 +89,40 @@ function computeIdentity(asset: Asset): {
   if (score >= 1) {
     return {
       level: 'basic',
+      label: 'Identity: Basic',
+      shortLabel: 'Basic',
       colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
     };
   }
 
   return {
     level: 'unknown',
+    label: 'Identity: Unknown',
+    shortLabel: 'Unknown',
     colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
   };
 }
 
-// Magic Import readiness rule
-function isMagicReady(asset: Asset): boolean {
-  const identity = computeIdentity(asset);
-  const hasContext =
-    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+function formatMoney(
+  value: number | null,
+  currency: string | null = 'GBP'
+): string {
+  if (value == null) return '—';
+  const cur = currency ?? 'GBP';
+  if (cur === 'GBP') return `£${value.toFixed(0)}`;
+  return `${cur} ${value.toFixed(0)}`;
+}
+
+function ColumnHeaderWithTooltip(props: { label: string; tooltip: string }) {
+  const { label, tooltip } = props;
   return (
-    (identity.level === 'good' || identity.level === 'strong') && hasContext
+    <div className="group relative inline-flex cursor-default items-center gap-1">
+      <span>{label}</span>
+      <span className="text-[10px] leading-none text-slate-400">?</span>
+      <div className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-52 rounded-md bg-slate-900 px-2 py-1 text-[11px] text-white shadow-lg group-hover:block">
+        {tooltip}
+      </div>
+    </div>
   );
 }
 
@@ -115,7 +153,9 @@ export default function DashboardPage() {
           model_name,
           serial_number,
           purchase_price,
+          purchase_currency,
           current_estimated_value,
+          estimate_currency,
           purchase_url,
           receipt_url,
           notes_internal,
@@ -150,73 +190,29 @@ export default function DashboardPage() {
     0
   );
 
-  const portfolioDelta = totalCurrent - totalPurchase;
-  const percentChange =
-    totalPurchase > 0 ? (portfolioDelta / totalPurchase) * 100 : null;
-
-  const assetCount = assets.length;
-
-  let strongCount = 0;
-  let basicOrGoodCount = 0;
-  let catalogMatches = 0;
-  let magicReadyCount = 0;
-
-  assets.forEach(asset => {
-    const identity = computeIdentity(asset);
-    if (identity.level === 'strong') strongCount++;
-    if (identity.level === 'basic' || identity.level === 'good') {
-      basicOrGoodCount++;
-    }
-    if (asset.asset_type_id) catalogMatches++;
-    if (isMagicReady(asset)) magicReadyCount++;
-  });
-
-  type CategorySummary = {
-    category: string;
-    count: number;
-    totalPurchase: number;
-    totalCurrent: number;
-  };
-
-  const categoryMap: Record<string, CategorySummary> = {};
-
-  assets.forEach(asset => {
-    const cat = getCategoryName(asset);
-    if (!categoryMap[cat]) {
-      categoryMap[cat] = {
-        category: cat,
-        count: 0,
-        totalPurchase: 0,
-        totalCurrent: 0,
-      };
-    }
-    categoryMap[cat].count += 1;
-    categoryMap[cat].totalPurchase += asset.purchase_price ?? 0;
-    categoryMap[cat].totalCurrent += asset.current_estimated_value ?? 0;
-  });
-
-  const categorySummaries = Object.values(categoryMap).sort(
-    (a, b) => b.totalCurrent - a.totalCurrent
+  // Magic Import readiness stats
+  const identityStats = assets.reduce(
+    (acc, asset) => {
+      const identity = computeIdentity(asset);
+      acc[identity.level] = acc[identity.level] + 1;
+      return acc;
+    },
+    {
+      unknown: 0,
+      basic: 0,
+      good: 0,
+      strong: 0,
+    } as Record<IdentityLevel, number>
   );
 
-  const formatMoney = (value: number | null | undefined) => {
-    if (value == null) return '—';
-    return `£${value.toFixed(0)}`;
-  };
-
-  const formatDelta = (value: number) => {
-    if (value === 0) return '£0';
-    const prefix = value > 0 ? '+' : '−';
-    const abs = Math.abs(value);
-    return `${prefix}£${abs.toFixed(0)}`;
-  };
-
-  const formatPercent = (value: number | null) => {
-    if (value == null) return '—';
-    const prefix = value > 0 ? '+' : value < 0 ? '−' : '';
-    const abs = Math.abs(value);
-    return `${prefix}${abs.toFixed(1)}%`;
-  };
+  const magicReadyCount = assets.filter(asset => {
+    const identity = computeIdentity(asset);
+    const hasContext =
+      !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+    return (
+      (identity.level === 'good' || identity.level === 'strong') && hasContext
+    );
+  }).length;
 
   if (loading) return <div className="p-6">Loading…</div>;
 
@@ -241,119 +237,72 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Portfolio totals */}
-      <div className="rounded border bg-slate-50 p-4 text-sm">
-        <p className="mb-2 font-medium">Portfolio totals</p>
-        <div className="flex flex-col gap-1 md:flex-row md:gap-4">
-          <span>
-            Total purchase value:{' '}
-            <span className="font-semibold">
-              {formatMoney(totalPurchase || 0)}
+      {/* Portfolio totals + Magic Import overview */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded border bg-slate-50 p-4 text-sm">
+          <p className="mb-2 font-medium">Portfolio totals</p>
+          <div className="flex flex-col gap-1">
+            <span>
+              Total purchase value:{' '}
+              <span className="font-semibold">
+                {formatMoney(totalPurchase || 0, 'GBP')}
+              </span>
             </span>
-          </span>
-          <span>
-            Total current estimated value:{' '}
-            <span className="font-semibold">
-              {formatMoney(totalCurrent || 0)}
+            <span>
+              Total current estimated value:{' '}
+              <span className="font-semibold">
+                {formatMoney(totalCurrent || 0, 'GBP')}
+              </span>
             </span>
-          </span>
+          </div>
+        </div>
+
+        <div className="rounded border bg-white p-4 text-sm">
+          <p className="mb-2 font-medium">Magic Import overview</p>
+          {assets.length === 0 ? (
+            <p className="text-xs text-slate-600">
+              Add your first asset to see how ready your portfolio is for Magic
+              Import.
+            </p>
+          ) : (
+            <div className="space-y-2 text-xs text-slate-700">
+              <p>
+                Magic-Ready assets:{' '}
+                <span className="font-semibold">
+                  {magicReadyCount} / {assets.length}
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <span>
+                  Strong / Exact:{' '}
+                  <span className="font-semibold">
+                    {identityStats.strong}
+                  </span>
+                </span>
+                <span>
+                  Good:{' '}
+                  <span className="font-semibold">{identityStats.good}</span>
+                </span>
+                <span>
+                  Basic:{' '}
+                  <span className="font-semibold">{identityStats.basic}</span>
+                </span>
+                <span>
+                  Unknown:{' '}
+                  <span className="font-semibold">
+                    {identityStats.unknown}
+                  </span>
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                An asset is Magic-Ready when Round has a good or strong
+                identity (brand + model + category) and at least one context
+                source (product URL, notes or receipt PDF).
+              </p>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Portfolio insights */}
-      {assetCount > 0 && (
-        <div className="rounded border bg-white p-4 text-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="font-medium">Portfolio insights</p>
-            <p className="text-xs text-slate-500">
-              Based on your recorded purchase and current estimated values.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-4">
-            <div>
-              <p className="text-xs text-slate-500">
-                Overall gain / loss vs purchase
-              </p>
-              <p className="text-sm font-semibold">
-                {formatDelta(portfolioDelta)}
-              </p>
-              <p className="mt-1 text-xs text-slate-600">
-                {formatPercent(percentChange)} vs total purchase value
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500">Identity coverage</p>
-              <p className="text-sm font-semibold">
-                {strongCount}/{assetCount} assets
-              </p>
-              <p className="mt-1 text-xs text-slate-600">
-                have <span className="font-medium">Strong</span> identity
-                (including catalog matches)
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500">Catalog matches</p>
-              <p className="text-sm font-semibold">
-                {catalogMatches}/{assetCount} assets
-              </p>
-              <p className="mt-1 text-xs text-slate-600">
-                are linked to a catalog identity, ready for automated valuation
-                later.
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500">Magic Import ready</p>
-              <p className="text-sm font-semibold">
-                {magicReadyCount}/{assetCount} assets
-              </p>
-              <p className="mt-1 text-xs text-slate-600">
-                have strong identity plus at least one context source (URL,
-                email/notes or receipt).
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Portfolio composition */}
-      {assetCount > 0 && categorySummaries.length > 0 && (
-        <div className="rounded border bg-slate-50 p-4 text-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="font-medium">Portfolio composition</p>
-            <p className="text-xs text-slate-500">
-              How your portfolio breaks down by category.
-            </p>
-          </div>
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="border-b">
-                <th className="py-1 text-left">Category</th>
-                <th className="py-1 text-right">Assets</th>
-                <th className="py-1 text-right">Purchase (£)</th>
-                <th className="py-1 text-right">Current (£)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categorySummaries.map(row => (
-                <tr key={row.category} className="border-b">
-                  <td className="py-1">{row.category}</td>
-                  <td className="py-1 text-right">{row.count}</td>
-                  <td className="py-1 text-right">
-                    {formatMoney(row.totalPurchase)}
-                  </td>
-                  <td className="py-1 text-right">
-                    {formatMoney(row.totalCurrent)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {/* Table */}
       {assets.length === 0 ? (
@@ -362,45 +311,60 @@ export default function DashboardPage() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <th className="py-2 text-left">Title</th>
               <th className="py-2 text-left">
-                <div className="relative inline-flex items-center gap-1 group">
-                  <span>Identity</span>
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full border text-[10px] text-slate-500 cursor-help">
-                    ?
-                  </span>
-                  <div className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-72 rounded border bg-white p-2 text-xs text-slate-700 shadow-lg group-hover:block">
-                    <p className="mb-1 font-medium">What is Identity?</p>
-                    <p>
-                      Identity shows how well Round understands each asset.
-                      Basic = a starting point, Good = enough details for
-                      comparisons, Strong = either a rich description or a link
-                      to a catalog identity, making automated valuations more
-                      reliable.
-                    </p>
-                  </div>
-                </div>
+                <ColumnHeaderWithTooltip
+                  label="Title"
+                  tooltip="The name you gave the asset, e.g. 'Vitra Softshell Chair – Home Office'."
+                />
               </th>
-              <th className="py-2 text-left">Category</th>
-              <th className="py-2 text-left">Status</th>
-              <th className="py-2 text-right">Purchase (£)</th>
-              <th className="py-2 text-right">Current (£)</th>
-              <th className="py-2 text-center">Docs</th>
+              <th className="py-2 text-left">
+                <ColumnHeaderWithTooltip
+                  label="Category"
+                  tooltip="High-level asset type – useful for grouping and comparing similar items."
+                />
+              </th>
+              <th className="py-2 text-left">
+                <ColumnHeaderWithTooltip
+                  label="Identity"
+                  tooltip="How well Round knows what this asset is (brand, model, category and serial/unique ID)."
+                />
+              </th>
+              <th className="py-2 text-left">
+                <ColumnHeaderWithTooltip
+                  label="Status"
+                  tooltip="Owned, for sale, sold or archived – useful for seeing what is still in your portfolio."
+                />
+              </th>
+              <th className="py-2 text-right">
+                <ColumnHeaderWithTooltip
+                  label="Purchase (£)"
+                  tooltip="What you originally paid for the asset."
+                />
+              </th>
+              <th className="py-2 text-right">
+                <ColumnHeaderWithTooltip
+                  label="Current (£)"
+                  tooltip="Your current estimated value for the asset."
+                />
+              </th>
+              <th className="py-2 text-center">
+                <ColumnHeaderWithTooltip
+                  label="Docs"
+                  tooltip="Quick view of whether Round has a purchase link and/or a receipt PDF for this asset."
+                />
+              </th>
             </tr>
           </thead>
           <tbody>
             {assets.map(asset => {
               const identity = computeIdentity(asset);
-              const identityLabel =
-                identity.level === 'strong'
-                  ? 'Strong'
-                  : identity.level === 'good'
-                  ? 'Good'
-                  : identity.level === 'basic'
-                  ? 'Basic'
-                  : 'Unknown';
-
-              const magicReady = isMagicReady(asset);
+              const hasContext =
+                !!asset.purchase_url ||
+                !!asset.notes_internal ||
+                !!asset.receipt_url;
+              const magicReady =
+                (identity.level === 'good' || identity.level === 'strong') &&
+                hasContext;
 
               return (
                 <tr
@@ -412,41 +376,42 @@ export default function DashboardPage() {
                     <div className="flex flex-col">
                       <span>{asset.title}</span>
                       {(asset.brand || asset.model_name) && (
-                        <span className="text-xs text-slate-500">
+                        <span className="text-[11px] text-slate-500">
                           {[asset.brand, asset.model_name]
                             .filter(Boolean)
                             .join(' ')}
                         </span>
                       )}
-                      {asset.asset_type_id && (
-                        <span className="text-[10px] uppercase tracking-wide text-emerald-700">
-                          Catalog match
-                        </span>
-                      )}
+                    </div>
+                  </td>
+                  <td className="py-2">{getCategoryName(asset)}</td>
+                  <td className="py-2">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${identity.colorClass}`}
+                        title={identity.label}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                        {identity.shortLabel}
+                      </span>
                       {magicReady && (
-                        <span className="text-[10px] uppercase tracking-wide text-indigo-700">
-                          Magic-Ready
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800"
+                          title="Magic-Ready: Round has enough identity and context to start automated valuations."
+                        >
+                          ✨ Ready
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="py-2">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${identity.colorClass}`}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {identityLabel}
-                    </span>
-                  </td>
-                  <td className="py-2">{getCategoryName(asset)}</td>
                   <td className="py-2 capitalize">
                     {asset.status ?? 'unknown'}
                   </td>
                   <td className="py-2 text-right">
-                    {formatMoney(asset.purchase_price)}
+                    {formatMoney(asset.purchase_price, 'GBP')}
                   </td>
                   <td className="py-2 text-right">
-                    {formatMoney(asset.current_estimated_value)}
+                    {formatMoney(asset.current_estimated_value, 'GBP')}
                   </td>
                   <td className="py-2 text-center">
                     {asset.purchase_url && (
