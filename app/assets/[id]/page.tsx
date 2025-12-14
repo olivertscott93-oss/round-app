@@ -504,6 +504,12 @@ export default function AssetDetailPage() {
   const categoryName = getCategoryName(asset);
   const isHome = isHomeLikeAsset(categoryName);
 
+  // NEW: total upgrades invested (for this asset)
+  const upgradesTotal = upgrades.reduce(
+    (sum, u) => sum + (u.cost ?? 0),
+    0
+  );
+
   return (
     <div className="space-y-4 p-6">
       {/* Top bar */}
@@ -573,6 +579,14 @@ export default function AssetDetailPage() {
           <p className="text-lg font-semibold">
             {formatMoney(asset.purchase_price, asset.purchase_currency)}
           </p>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Total upgrades invested
+          </p>
+          <p className="text-sm font-medium">
+            {formatMoney(upgradesTotal, 'GBP')}
+          </p>
+
           <p className="mt-3 text-xs text-slate-500">Current estimate</p>
           <p className="text-lg font-semibold">
             {formatMoney(
@@ -581,8 +595,9 @@ export default function AssetDetailPage() {
             )}
           </p>
           <p className="mt-3 text-[11px] text-slate-500">
-            In the future, Round will keep these numbers in sync with the
-            market automatically.
+            Over time, Round will connect these data points to live market
+            signals so you can see how your investment into this asset is
+            tracking.
           </p>
         </div>
 
