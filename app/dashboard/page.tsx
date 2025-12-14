@@ -25,6 +25,7 @@ type Asset = {
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
+type TrendClass = 'appreciating' | 'depreciating' | 'neutral';
 
 function getCategoryName(asset: Asset | null) {
   if (!asset || !asset.category || asset.category.length === 0) return '—';
@@ -46,7 +47,7 @@ function computeIdentity(asset: Asset | null): {
     };
   }
 
-  // If it's linked to an asset type in the catalog, treat as exact
+  // If linked to a catalog asset type, treat as exact/strong
   if (asset.asset_type_id) {
     return {
       level: 'strong',
@@ -137,6 +138,54 @@ function isMagicReady(asset: Asset): boolean {
   );
 }
 
+// Very simple heuristic for “trend class” – just to demonstrate the concept
+function classifyTrend(asset: Asset): TrendClass {
+  const categoryName = getCategoryName(asset).toLowerCase();
+  const title = (asset.title || '').toLowerCase();
+
+  const text = `${categoryName} ${title}`;
+
+  const isProperty =
+    text.includes('home') ||
+    text.includes('house') ||
+    text.includes('flat') ||
+    text.includes('apartment') ||
+    text.includes('property') ||
+    text.includes('real estate') ||
+    text.includes('kitchen') ||
+    text.includes('bathroom') ||
+    text.includes('extension');
+
+  const isVehicle =
+    text.includes('car') ||
+    text.includes('vehicle') ||
+    text.includes('van') ||
+    text.includes('bike') ||
+    text.includes('motorbike') ||
+    text.includes('motorcycle');
+
+  const isElectronics =
+    text.includes('phone') ||
+    text.includes('laptop') ||
+    text.includes('macbook') ||
+    text.includes('tv') ||
+    text.includes('television') ||
+    text.includes('monitor') ||
+    text.includes('tablet') ||
+    text.includes('camera');
+
+  if (isProperty) return 'appreciating';
+  if (isVehicle || isElectronics) return 'depreciating';
+  return 'neutral';
+}
+
+// Choose a value basis for portfolio stats – prefer current estimate, fall back to purchase
+function valueForStats(asset: Asset): number {
+  if (asset.current_estimated_value != null) return asset.current_estimated_value;
+  if (asset.purchase_price != null) return asset.purchase_price;
+  return 0;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -202,7 +251,7 @@ export default function DashboardPage() {
     0
   );
 
-  // Identity + Magic Import stats (always based on full portfolio)
+  // Identity + Magic Import stats (full portfolio)
   const identityStats = assets.reduce(
     (acc, asset) => {
       const identity = computeIdentity(asset);
@@ -218,6 +267,39 @@ export default function DashboardPage() {
   );
 
   const magicReadyCount = assets.filter(isMagicReady).length;
+
+  // Portfolio insights: by category + trend + top assets
+  const categoryTotals = new Map<string, number>();
+  const trendTotals: Record<TrendClass, number> = {
+    appreciating: 0,
+    depreciating: 0,
+    neutral: 0,
+  };
+
+  assets.forEach(asset => {
+    const categoryName = getCategoryName(asset);
+    const v = valueForStats(asset);
+
+    if (v > 0) {
+      // By category
+      const prev = categoryTotals.get(categoryName) ?? 0;
+      categoryTotals.set(categoryName, prev + v);
+
+      // By trend class
+      const trend = classifyTrend(asset);
+      trendTotals[trend] += v;
+    }
+  });
+
+  const sortedCategories = Array.from(categoryTotals.entries()).sort(
+    (a, b) => b[1] - a[1]
+  );
+  const topCategories = sortedCategories.slice(0, 3);
+
+  const topAssets = [...assets]
+    .filter(a => valueForStats(a) > 0)
+    .sort((a, b) => valueForStats(b) - valueForStats(a))
+    .slice(0, 3);
 
   // Apply filter to visible assets
   const visibleAssets = filterMagicReadyOnly
@@ -247,9 +329,7 @@ export default function DashboardPage() {
           {assets.length > 0 && (
             <button
               type="button"
-              onClick={() =>
-                setFilterMagicReadyOnly(prev => !prev)
-              }
+              onClick={() => setFilterMagicReadyOnly(prev => !prev)}
               className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition ${
                 filterMagicReadyOnly
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
@@ -277,8 +357,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Portfolio totals + Magic Import overview */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Portfolio totals + Magic Import overview + Portfolio insights */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Totals */}
         <div className="rounded border bg-slate-50 p-4 text-sm">
           <p className="mb-2 font-medium">Portfolio totals</p>
           {assets.length === 0 ? (
@@ -303,6 +384,7 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Magic Import overview */}
         <div className="rounded border bg-white p-4 text-sm">
           <p className="mb-2 font-medium">Magic Import overview</p>
           {assets.length === 0 ? (
@@ -349,6 +431,111 @@ export default function DashboardPage() {
                 identity (brand + model + category) and at least one
                 context source (product URL, notes or receipt PDF). This is
                 what enables automated valuations in the future.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Portfolio insights */}
+        <div className="rounded border bg-white p-4 text-sm">
+          <p className="mb-2 font-medium">Portfolio insights (demo)</p>
+          {assets.length === 0 ? (
+            <p className="text-xs text-slate-600">
+              Once you add assets, Round will show where your value sits by
+              category and which things are likely appreciating vs
+              depreciating.
+            </p>
+          ) : (
+            <div className="space-y-3 text-xs text-slate-700">
+              {/* Top categories */}
+              <div>
+                <p className="mb-1 font-medium text-[11px] uppercase tracking-wide text-slate-500">
+                  Top categories by value
+                </p>
+                {topCategories.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">
+                    No value data yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {topCategories.map(([name, value]) => (
+                      <li key={name} className="flex justify-between">
+                        <span>{name}</span>
+                        <span className="font-semibold">
+                          {formatMoney(value, 'GBP')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Trend classes */}
+              <div>
+                <p className="mb-1 font-medium text-[11px] uppercase tracking-wide text-slate-500">
+                  Likely value profile (demo logic)
+                </p>
+                <ul className="space-y-0.5">
+                  <li className="flex justify-between">
+                    <span>Appreciating (property / home)</span>
+                    <span className="font-semibold">
+                      {formatMoney(trendTotals.appreciating, 'GBP')}
+                    </span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>Depreciating (cars / electronics)</span>
+                    <span className="font-semibold">
+                      {formatMoney(trendTotals.depreciating, 'GBP')}
+                    </span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>Neutral / other</span>
+                    <span className="font-semibold">
+                      {formatMoney(trendTotals.neutral, 'GBP')}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Top assets */}
+              <div>
+                <p className="mb-1 font-medium text-[11px] uppercase tracking-wide text-slate-500">
+                  Top assets by value
+                </p>
+                {topAssets.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">
+                    No value data yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {topAssets.map(asset => (
+                      <li
+                        key={asset.id}
+                        className="flex items-center justify-between"
+                      >
+                        <div className="flex flex-col">
+                          <span>{asset.title}</span>
+                          {(asset.brand || asset.model_name) && (
+                            <span className="text-[11px] text-slate-500">
+                              {[asset.brand, asset.model_name]
+                                .filter(Boolean)
+                                .join(' ')}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-semibold">
+                          {formatMoney(valueForStats(asset), 'GBP')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <p className="text-[10px] text-slate-400">
+                This is placeholder logic to illustrate how Round will show
+                appreciating vs depreciating value. In the future this will
+                be powered by live market data and richer asset types.
               </p>
             </div>
           )}
