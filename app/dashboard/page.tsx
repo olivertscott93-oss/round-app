@@ -220,7 +220,14 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false });
 
       if (!error && data) {
-        setAssets(data as Asset[]);
+        // Normalise category: Supabase returns category as an array; we want a single object
+        const normalised = (data as any[]).map((row) => ({
+          ...row,
+          category: Array.isArray(row.category)
+            ? (row.category[0] ?? null)
+            : row.category ?? null,
+        }));
+        setAssets(normalised as Asset[]);
       }
 
       setLoading(false);
