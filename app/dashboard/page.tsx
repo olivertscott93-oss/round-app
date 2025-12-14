@@ -21,15 +21,15 @@ type Asset = {
   asset_type_id: string | null;
   category?: {
     name: string | null;
-  }[] | null;
+  } | null;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 type TrendClass = 'appreciating' | 'depreciating' | 'neutral';
 
 function getCategoryName(asset: Asset | null) {
-  if (!asset || !asset.category || asset.category.length === 0) return '—';
-  return asset.category[0]?.name ?? '—';
+  if (!asset || !asset.category) return '—';
+  return asset.category.name ?? '—';
 }
 
 function computeIdentity(asset: Asset | null): {
@@ -47,51 +47,43 @@ function computeIdentity(asset: Asset | null): {
     };
   }
 
-  // If linked to a catalog asset type, treat as exact/strong
-  if (asset.asset_type_id) {
-    return {
-      level: 'strong',
-      label: 'Identity: Exact match via catalog',
-      shortLabel: 'Exact',
-      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    };
-  }
-
-  let score = 0;
-
   const categoryName = getCategoryName(asset);
   const hasCategory = !!categoryName && categoryName !== '—';
   const hasBrand = !!asset.brand;
   const hasModel = !!asset.model_name;
   const hasSerial = !!asset.serial_number;
 
+  let score = 0;
   if (hasCategory) score++;
   if (hasBrand) score++;
   if (hasModel) score++;
   if (hasSerial) score++;
 
-  if (score >= 4) {
+  if (score >= 3) {
     return {
       level: 'strong',
-      label: 'Identity: Strong match (brand + model + category + unique ID)',
+      label:
+        'Identity: Strong (brand, model, category and/or unique ID are clearly defined).',
       shortLabel: 'Strong',
       colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
   }
 
-  if (score >= 2) {
+  if (score === 2) {
     return {
       level: 'good',
-      label: 'Identity: Good (enough to compare reliably)',
+      label:
+        'Identity: Good (at least two of brand, model and category are known).',
       shortLabel: 'Good',
       colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
     };
   }
 
-  if (score >= 1) {
+  if (score === 1) {
     return {
       level: 'basic',
-      label: 'Identity: Basic (some signals, but needs more detail)',
+      label:
+        'Identity: Basic (Round has one signal, but would benefit from brand/model/category).',
       shortLabel: 'Basic',
       colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
     };
@@ -402,7 +394,7 @@ export default function DashboardPage() {
               </p>
               <div className="flex flex-wrap gap-3">
                 <span>
-                  Strong / Exact:{' '}
+                  Strong:{' '}
                   <span className="font-semibold">
                     {identityStats.strong}
                   </span>
