@@ -60,8 +60,6 @@ type Document = {
   title: string | null;
   url: string | null;
   uploaded_at: string | null;
-  upgrade_id: string | null;
-  service_id: string | null;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
@@ -169,6 +167,34 @@ function isHomeLikeAsset(categoryName: string): boolean {
   );
 }
 
+/**
+ * Upload a file to the "documents" bucket and return its public URL.
+ */
+async function uploadDocumentToBucket(file: File, assetId: string) {
+  const ext = file.name.split('.').pop() || 'bin';
+  const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+  const path = `${assetId}/${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${ext}`;
+
+  const { data, error } = await supabase
+    .storage
+    .from('documents')
+    .upload(path, file);
+
+  if (error || !data) {
+    console.error('Upload error:', error);
+    throw new Error('Could not upload file. Please try again.');
+  }
+
+  const { data: publicData } = supabase
+    .storage
+    .from('documents')
+    .getPublicUrl(data.path);
+
+  return publicData.publicUrl;
+}
+
 export default function AssetDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -179,17 +205,12 @@ export default function AssetDetailPage() {
   const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [assetDocuments, setAssetDocuments] = useState<Document[]>([]);
-  const [upgradeDocuments, setUpgradeDocuments] = useState<
-    Record<string, Document[]>
-  >({});
-  const [serviceDocuments, setServiceDocuments] = useState<
-    Record<string, Document[]>
-  >({});
   const [loading, setLoading] = useState(true);
+
   const [magicMessage, setMagicMessage] = useState<string | null>(null);
   const [magicLoading, setMagicLoading] = useState(false);
 
-  // Inline "Add upgrade" form state
+  // Upgrades – create
   const [showUpgradeForm, setShowUpgradeForm] = useState(false);
   const [upgradeTitle, setUpgradeTitle] = useState('');
   const [upgradeDescription, setUpgradeDescription] = useState('');
@@ -198,7 +219,7 @@ export default function AssetDetailPage() {
   const [upgradeSaving, setUpgradeSaving] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
-  // EDIT upgrade state
+  // Upgrades – edit
   const [editingUpgradeId, setEditingUpgradeId] = useState<string | null>(null);
   const [editUpgradeTitle, setEditUpgradeTitle] = useState('');
   const [editUpgradeDescription, setEditUpgradeDescription] = useState('');
@@ -207,7 +228,7 @@ export default function AssetDetailPage() {
   const [editUpgradeSaving, setEditUpgradeSaving] = useState(false);
   const [editUpgradeError, setEditUpgradeError] = useState<string | null>(null);
 
-  // Inline "Add service" form state
+  // Services – create
   const [showServiceForm, setShowServiceForm] = useState(false);
   const [serviceDate, setServiceDate] = useState('');
   const [serviceProvider, setServiceProvider] = useState('');
@@ -216,7 +237,7 @@ export default function AssetDetailPage() {
   const [serviceSaving, setServiceSaving] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
 
-  // EDIT service state
+  // Services – edit
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [editServiceDate, setEditServiceDate] = useState('');
   const [editServiceProvider, setEditServiceProvider] = useState('');
@@ -225,33 +246,15 @@ export default function AssetDetailPage() {
   const [editServiceSaving, setEditServiceSaving] = useState(false);
   const [editServiceError, setEditServiceError] = useState<string | null>(null);
 
-  // Asset-level "Add document" form state
+  // Asset-level document form
   const [showDocumentForm, setShowDocumentForm] = useState(false);
   const [docType, setDocType] = useState('');
   const [docTitle, setDocTitle] = useState('');
   const [docUrl, setDocUrl] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docDragOver, setDocDragOver] = useState(false);
   const [docSaving, setDocSaving] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-
-  // Upgrade-level doc form
-  const [upgradeDocFormForId, setUpgradeDocFormForId] = useState<string | null>(
-    null
-  );
-  const [upgradeDocType, setUpgradeDocType] = useState('');
-  const [upgradeDocTitle, setUpgradeDocTitle] = useState('');
-  const [upgradeDocUrl, setUpgradeDocUrl] = useState('');
-  const [upgradeDocSaving, setUpgradeDocSaving] = useState(false);
-  const [upgradeDocError, setUpgradeDocError] = useState<string | null>(null);
-
-  // Service-level doc form
-  const [serviceDocFormForId, setServiceDocFormForId] = useState<string | null>(
-    null
-  );
-  const [serviceDocType, setServiceDocType] = useState('');
-  const [serviceDocTitle, setServiceDocTitle] = useState('');
-  const [serviceDocUrl, setServiceDocUrl] = useState('');
-  const [serviceDocSaving, setServiceDocSaving] = useState(false);
-  const [serviceDocError, setServiceDocError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!assetId) return;
@@ -268,7 +271,7 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // 1) Load the asset (with category)
+      // 1) Asset
       const { data: assetData, error: assetError } = await supabase
         .from('assets')
         .select(
@@ -300,7 +303,6 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // Normalise category array → single object
       const normalisedAsset: Asset = {
         ...(assetData as any),
         category: Array.isArray((assetData as any).category)
@@ -310,7 +312,7 @@ export default function AssetDetailPage() {
 
       setAsset(normalisedAsset);
 
-      // 2) Load valuations
+      // 2) Valuations
       const { data: valData } = await supabase
         .from('valuations')
         .select(
@@ -333,7 +335,7 @@ export default function AssetDetailPage() {
         setValuations(valData as Valuation[]);
       }
 
-      // 3) Load upgrades
+      // 3) Upgrades
       const { data: upData, error: upError } = await supabase
         .from('asset_upgrades')
         .select(
@@ -353,7 +355,7 @@ export default function AssetDetailPage() {
         setUpgrades(upData as Upgrade[]);
       }
 
-      // 4) Load services
+      // 4) Services
       const { data: svcData, error: svcError } = await supabase
         .from('asset_services')
         .select(
@@ -373,7 +375,7 @@ export default function AssetDetailPage() {
         setServices(svcData as Service[]);
       }
 
-      // 5) Load documents (asset-level + per-upgrade + per-service)
+      // 5) Asset-level documents
       const { data: docData, error: docError } = await supabase
         .from('asset_documents')
         .select(
@@ -382,36 +384,14 @@ export default function AssetDetailPage() {
           doc_type,
           title,
           url,
-          uploaded_at,
-          upgrade_id,
-          service_id
+          uploaded_at
         `
         )
         .eq('asset_id', assetId)
         .order('uploaded_at', { ascending: false });
 
       if (!docError && docData) {
-        const docs = docData as unknown as Document[];
-
-        const assetDocs: Document[] = [];
-        const upgradeMap: Record<string, Document[]> = {};
-        const serviceMap: Record<string, Document[]> = {};
-
-        for (const d of docs) {
-          if (d.upgrade_id) {
-            if (!upgradeMap[d.upgrade_id]) upgradeMap[d.upgrade_id] = [];
-            upgradeMap[d.upgrade_id].push(d);
-          } else if (d.service_id) {
-            if (!serviceMap[d.service_id]) serviceMap[d.service_id] = [];
-            serviceMap[d.service_id].push(d);
-          } else {
-            assetDocs.push(d);
-          }
-        }
-
-        setAssetDocuments(assetDocs);
-        setUpgradeDocuments(upgradeMap);
-        setServiceDocuments(serviceMap);
+        setAssetDocuments(docData as Document[]);
       }
 
       setLoading(false);
@@ -538,7 +518,9 @@ export default function AssetDetailPage() {
       cancelEditUpgrade();
     } catch (err: any) {
       console.error(err);
-      setEditUpgradeError(err.message || 'Something went wrong while updating.');
+      setEditUpgradeError(
+        err.message || 'Something went wrong while updating.'
+      );
     } finally {
       setEditUpgradeSaving(false);
     }
@@ -643,13 +625,15 @@ export default function AssetDetailPage() {
       cancelEditService();
     } catch (err: any) {
       console.error(err);
-      setEditServiceError(err.message || 'Something went wrong while updating.');
+      setEditServiceError(
+        err.message || 'Something went wrong while updating.'
+      );
     } finally {
       setEditServiceSaving(false);
     }
   };
 
-  // CREATE asset-level doc
+  // CREATE asset-level document
   const handleDocumentSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
@@ -658,13 +642,23 @@ export default function AssetDetailPage() {
     setDocSaving(true);
 
     try {
+      let finalUrl: string | null = docUrl || null;
+
+      if (docFile) {
+        finalUrl = await uploadDocumentToBucket(docFile, assetId);
+      }
+
+      if (!finalUrl) {
+        throw new Error('Please provide either a URL or upload a file.');
+      }
+
       const { data, error } = await supabase
         .from('asset_documents')
         .insert({
           asset_id: assetId,
           doc_type: docType || null,
           title: docTitle || null,
-          url: docUrl || null,
+          url: finalUrl,
         } as any)
         .select()
         .single();
@@ -680,108 +674,13 @@ export default function AssetDetailPage() {
       setDocType('');
       setDocTitle('');
       setDocUrl('');
+      setDocFile(null);
       setShowDocumentForm(false);
     } catch (err: any) {
       console.error(err);
       setDocError(err.message || 'Something went wrong while saving.');
     } finally {
       setDocSaving(false);
-    }
-  };
-
-  // CREATE upgrade-level doc
-  const handleUpgradeDocSubmit = async (e: FormEvent, upgradeId: string) => {
-    e.preventDefault();
-    if (!assetId) return;
-
-    setUpgradeDocError(null);
-    setUpgradeDocSaving(true);
-
-    try {
-      const { data, error } = await supabase
-        .from('asset_documents')
-        .insert({
-          asset_id: assetId,
-          upgrade_id: upgradeId,
-          doc_type: upgradeDocType || null,
-          title: upgradeDocTitle || null,
-          url: upgradeDocUrl || null,
-        } as any)
-        .select()
-        .single();
-
-      if (error || !data) {
-        console.error(error);
-        throw new Error('Could not save document.');
-      }
-
-      const doc = data as Document;
-
-      setUpgradeDocuments(prev => {
-        const existing = prev[upgradeId] ?? [];
-        return {
-          ...prev,
-          [upgradeId]: [doc, ...existing],
-        };
-      });
-
-      setUpgradeDocType('');
-      setUpgradeDocTitle('');
-      setUpgradeDocUrl('');
-      setUpgradeDocFormForId(null);
-    } catch (err: any) {
-      console.error(err);
-      setUpgradeDocError(err.message || 'Something went wrong while saving.');
-    } finally {
-      setUpgradeDocSaving(false);
-    }
-  };
-
-  // CREATE service-level doc
-  const handleServiceDocSubmit = async (e: FormEvent, serviceId: string) => {
-    e.preventDefault();
-    if (!assetId) return;
-
-    setServiceDocError(null);
-    setServiceDocSaving(true);
-
-    try {
-      const { data, error } = await supabase
-        .from('asset_documents')
-        .insert({
-          asset_id: assetId,
-          service_id: serviceId,
-          doc_type: serviceDocType || null,
-          title: serviceDocTitle || null,
-          url: serviceDocUrl || null,
-        } as any)
-        .select()
-        .single();
-
-      if (error || !data) {
-        console.error(error);
-        throw new Error('Could not save document.');
-      }
-
-      const doc = data as Document;
-
-      setServiceDocuments(prev => {
-        const existing = prev[serviceId] ?? [];
-        return {
-          ...prev,
-          [serviceId]: [doc, ...existing],
-        };
-      });
-
-      setServiceDocType('');
-      setServiceDocTitle('');
-      setServiceDocUrl('');
-      setServiceDocFormForId(null);
-    } catch (err: any) {
-      console.error(err);
-      setServiceDocError(err.message || 'Something went wrong while saving.');
-    } finally {
-      setServiceDocSaving(false);
     }
   };
 
@@ -979,99 +878,103 @@ export default function AssetDetailPage() {
 
       {/* Valuation history */}
       <div className="rounded border bg-white p-4 text-sm">
-        <div className="flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Valuation history
           </p>
         </div>
         {valuations.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-600">
-            No valuations recorded yet. For now, you can update the current
-            estimate manually. In the future, Round will add automated
-            valuations here.
+          <p className="text-xs text-slate-600">
+            Once Round starts pulling live price signals, you&apos;ll see
+            valuation events for this asset here – new, used and suggested
+            fair value.
           </p>
         ) : (
-          <div className="mt-3 space-y-2">
-            {valuations.map(v => (
-              <div
-                key={v.id}
-                className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
-              >
-                <div>
-                  <p className="font-medium">
-                    {v.suggested_value != null
-                      ? formatMoney(v.suggested_value, v.currency)
-                      : '—'}
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    Source:{' '}
-                    {v.valuation_source
-                      ? v.valuation_source
-                      : 'Unknown source'}
-                  </p>
-                </div>
-                <div className="text-right text-[11px] text-slate-500">
-                  <p>
-                    {new Date(v.created_at).toLocaleDateString('en-GB', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                  </p>
-                  {(v.new_price_min || v.used_price_min) && (
-                    <p className="mt-1">
-                      New:{' '}
-                      {v.new_price_min != null || v.new_price_max != null
-                        ? `${formatMoney(
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  <th className="px-2 py-1 text-left">Date</th>
+                  <th className="px-2 py-1 text-left">Source</th>
+                  <th className="px-2 py-1 text-right">Suggested</th>
+                  <th className="px-2 py-1 text-right">New range</th>
+                  <th className="px-2 py-1 text-right">Used range</th>
+                </tr>
+              </thead>
+              <tbody>
+                {valuations.map(v => (
+                  <tr key={v.id} className="border-b">
+                    <td className="px-2 py-1">
+                      {new Date(v.created_at).toLocaleDateString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </td>
+                    <td className="px-2 py-1">
+                      {v.valuation_source ?? '—'}
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      {formatMoney(v.suggested_value, v.currency)}
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      {v.new_price_min == null && v.new_price_max == null
+                        ? '—'
+                        : `${formatMoney(
                             v.new_price_min,
                             v.currency
-                          )}–${formatMoney(
-                            v.new_price_max,
-                            v.currency
-                          )}`
-                        : '—'}
-                      {' · '}
-                      Used:{' '}
-                      {v.used_price_min != null || v.used_price_max != null
-                        ? `${formatMoney(
+                          )} – ${formatMoney(v.new_price_max, v.currency)}`}
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      {v.used_price_min == null && v.used_price_max == null
+                        ? '—'
+                        : `${formatMoney(
                             v.used_price_min,
                             v.currency
-                          )}–${formatMoney(
-                            v.used_price_max,
-                            v.currency
-                          )}`
-                        : '—'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
+                          )} – ${formatMoney(v.used_price_max, v.currency)}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {/* Home container sections */}
       {isHome && (
-        <div className="grid gap-4 md:grid-cols-3">
-          {/* Upgrades */}
-          <div className="rounded border bg-white p-4 text-sm md:col-span-2">
+        <>
+          {/* Upgrades & improvements */}
+          <div className="rounded border bg-white p-4 text-sm">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Upgrades & improvements
+                Upgrades &amp; improvements
               </p>
               <button
                 type="button"
                 className="text-xs text-blue-600 underline"
-                onClick={() => setShowUpgradeForm(prev => !prev)}
+                onClick={() => {
+                  setShowUpgradeForm(prev => !prev);
+                  setUpgradeError(null);
+                }}
               >
                 {showUpgradeForm ? 'Cancel' : '+ Add upgrade'}
               </button>
             </div>
 
+            <p className="mb-2 text-[11px] text-slate-500">
+              Use this to log investments that upgrade or enhance the home:
+              kitchens, bathrooms, flooring, rewiring, windows, extensions,
+              joinery and other improvements that affect long-term value.
+            </p>
+
             {showUpgradeForm && (
-              <form onSubmit={handleUpgradeSubmit} className="mb-3 space-y-2">
+              <form
+                onSubmit={handleUpgradeSubmit}
+                className="mb-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3"
+              >
                 <div className="grid gap-2 md:grid-cols-3">
-                  <div className="space-y-1">
+                  <div className="space-y-1 md:col-span-2">
                     <label className="block text-[11px] font-medium">
                       Title
                     </label>
@@ -1080,12 +983,12 @@ export default function AssetDetailPage() {
                       value={upgradeTitle}
                       onChange={e => setUpgradeTitle(e.target.value)}
                       className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. Kitchen refurbishment"
+                      placeholder="e.g. New kitchen, Loft conversion"
                     />
                   </div>
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium">
-                      Date
+                      Date (approx.)
                     </label>
                     <input
                       type="date"
@@ -1094,40 +997,42 @@ export default function AssetDetailPage() {
                       className="w-full rounded border px-2 py-1 text-xs"
                     />
                   </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium">
                       Cost (GBP)
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      step="0.01"
                       value={upgradeCost}
                       onChange={e => setUpgradeCost(e.target.value)}
                       className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. 1000"
+                      placeholder="e.g. 12500"
+                    />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="block text-[11px] font-medium">
+                      Description
+                    </label>
+                    <textarea
+                      value={upgradeDescription}
+                      onChange={e =>
+                        setUpgradeDescription(e.target.value)
+                      }
+                      className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
+                      placeholder="Materials, supplier, rooms affected, rationale…"
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium">
-                    Description
-                  </label>
-                  <textarea
-                    value={upgradeDescription}
-                    onChange={e =>
-                      setUpgradeDescription(e.target.value)
-                    }
-                    className="w-full rounded border px-2 py-1 text-xs"
-                    rows={2}
-                    placeholder="What was upgraded? e.g. New Corston switches throughout ground floor."
-                  />
-                </div>
+
                 {upgradeError && (
                   <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
                     {upgradeError}
                   </div>
                 )}
+
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -1152,287 +1057,143 @@ export default function AssetDetailPage() {
 
             {upgrades.length === 0 ? (
               <p className="text-xs text-slate-600">
-                Use this section to capture major upgrades to your home –
-                kitchens, bathrooms, extensions, windows, heating, etc. Each
-                line becomes part of the home&apos;s value story.
+                You haven&apos;t logged any upgrades yet. Start with the
+                bigger ticket items (kitchen, bathrooms, windows, structural
+                work) so Round can tell a clearer story about total
+                investment vs value.
               </p>
             ) : (
-              <ul className="space-y-3">
-                {upgrades.map(u => {
-                  const docs = upgradeDocuments[u.id] ?? [];
-                  const isEditing = editingUpgradeId === u.id;
-                  const showDocForm = upgradeDocFormForId === u.id;
-
-                  return (
-                    <li
+              <div className="space-y-2">
+                {upgrades.map(u =>
+                  editingUpgradeId === u.id ? (
+                    <form
                       key={u.id}
-                      className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+                      onSubmit={handleUpgradeUpdate}
+                      className="space-y-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs"
                     >
-                      {isEditing ? (
-                        <form
-                          onSubmit={handleUpgradeUpdate}
-                          className="space-y-2"
-                        >
-                          <div className="grid gap-2 md:grid-cols-3">
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Title
-                              </label>
-                              <input
-                                type="text"
-                                value={editUpgradeTitle}
-                                onChange={e =>
-                                  setEditUpgradeTitle(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Date
-                              </label>
-                              <input
-                                type="date"
-                                value={editUpgradeDate}
-                                onChange={e =>
-                                  setEditUpgradeDate(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Cost (GBP)
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={editUpgradeCost}
-                                onChange={e =>
-                                  setEditUpgradeCost(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Description
-                            </label>
-                            <textarea
-                              value={editUpgradeDescription}
-                              onChange={e =>
-                                setEditUpgradeDescription(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                              rows={2}
-                            />
-                          </div>
-                          {editUpgradeError && (
-                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                              {editUpgradeError}
-                            </div>
-                          )}
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              className="text-xs text-slate-500"
-                              onClick={cancelEditUpgrade}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={editUpgradeSaving}
-                              className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                            >
-                              {editUpgradeSaving ? 'Saving…' : 'Save changes'}
-                            </button>
-                          </div>
-                        </form>
-                      ) : (
-                        <>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-medium">
-                                {u.title ?? 'Untitled upgrade'}
-                              </p>
-                              {u.description && (
-                                <p className="mt-1 text-[11px] text-slate-600">
-                                  {u.description}
-                                </p>
-                              )}
-                              {u.cost != null && (
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  Cost:{' '}
-                                  {formatMoney(
-                                    u.cost,
-                                    u.currency ?? 'GBP'
-                                  )}
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right text-[11px] text-slate-500">
-                              <p>
-                                {u.upgrade_date
-                                  ? new Date(
-                                      u.upgrade_date
-                                    ).toLocaleDateString('en-GB', {
-                                      year: 'numeric',
-                                      month: 'short',
-                                    })
-                                  : ''}
-                              </p>
-                              <button
-                                type="button"
-                                className="mt-1 text-[11px] text-blue-600 underline"
-                                onClick={() => startEditUpgrade(u)}
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="block text-[11px] font-medium">
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            value={editUpgradeTitle}
+                            onChange={e =>
+                              setEditUpgradeTitle(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium">
+                            Date
+                          </label>
+                          <input
+                            type="date"
+                            value={editUpgradeDate}
+                            onChange={e =>
+                              setEditUpgradeDate(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                      </div>
 
-                          {/* Documents for this upgrade */}
-                          <div className="mt-2 border-t border-slate-200 pt-2">
-                            <div className="mb-1 flex items-center justify-between">
-                              <p className="text-[11px] font-medium text-slate-600">
-                                Documents
-                              </p>
-                              <button
-                                type="button"
-                                className="text-[11px] text-blue-600 underline"
-                                onClick={() => {
-                                  setUpgradeDocFormForId(
-                                    showDocForm ? null : u.id
-                                  );
-                                  setUpgradeDocError(null);
-                                }}
-                              >
-                                {showDocForm ? 'Cancel' : '+ Add document'}
-                              </button>
-                            </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium">
+                            Cost (GBP)
+                          </label>
+                          <input
+                            type="number"
+                            value={editUpgradeCost}
+                            onChange={e =>
+                              setEditUpgradeCost(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="block text-[11px] font-medium">
+                            Description
+                          </label>
+                          <textarea
+                            value={editUpgradeDescription}
+                            onChange={e =>
+                              setEditUpgradeDescription(e.target.value)
+                            }
+                            className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                      </div>
 
-                            {showDocForm && (
-                              <form
-                                onSubmit={e =>
-                                  handleUpgradeDocSubmit(e, u.id)
-                                }
-                                className="mb-2 space-y-1"
-                              >
-                                <div className="grid gap-2 md:grid-cols-3">
-                                  <input
-                                    type="text"
-                                    value={upgradeDocType}
-                                    onChange={e =>
-                                      setUpgradeDocType(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="Type (e.g. Warranty)"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={upgradeDocTitle}
-                                    onChange={e =>
-                                      setUpgradeDocTitle(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="Title"
-                                  />
-                                  <input
-                                    type="url"
-                                    value={upgradeDocUrl}
-                                    onChange={e =>
-                                      setUpgradeDocUrl(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="URL"
-                                  />
-                                </div>
-                                {upgradeDocError && (
-                                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                                    {upgradeDocError}
-                                  </div>
-                                )}
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    type="button"
-                                    className="text-[11px] text-slate-500"
-                                    onClick={() => {
-                                      setUpgradeDocFormForId(null);
-                                      setUpgradeDocError(null);
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="submit"
-                                    disabled={upgradeDocSaving}
-                                    className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
-                                  >
-                                    {upgradeDocSaving
-                                      ? 'Saving…'
-                                      : 'Save document'}
-                                  </button>
-                                </div>
-                              </form>
-                            )}
-
-                            {docs.length === 0 ? (
-                              <p className="text-[11px] text-slate-500">
-                                No documents linked yet.
-                              </p>
-                            ) : (
-                              <ul className="space-y-1 text-[11px] text-slate-700">
-                                {docs.map(d => (
-                                  <li
-                                    key={d.id}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <div>
-                                      <span className="font-medium">
-                                        {d.title ??
-                                          d.doc_type ??
-                                          'Document'}
-                                      </span>
-                                      {d.doc_type && (
-                                        <span className="ml-1 text-slate-500">
-                                          ({d.doc_type})
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div>
-                                      {d.url ? (
-                                        <a
-                                          href={d.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-blue-600 underline"
-                                        >
-                                          Open
-                                        </a>
-                                      ) : (
-                                        <span className="text-slate-400">
-                                          No link
-                                        </span>
-                                      )}
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        </>
+                      {editUpgradeError && (
+                        <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                          {editUpgradeError}
+                        </div>
                       )}
-                    </li>
-                  );
-                })}
-              </ul>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="text-xs text-slate-500"
+                          onClick={cancelEditUpgrade}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={editUpgradeSaving}
+                          className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                        >
+                          {editUpgradeSaving ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div
+                      key={u.id}
+                      className="flex items-start justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <div>
+                        <p className="font-medium">
+                          {u.title ?? 'Upgrade'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {u.upgrade_date
+                            ? new Date(
+                                u.upgrade_date
+                              ).toLocaleDateString('en-GB', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })
+                            : 'Date not set'}
+                          {' · '}
+                          {formatMoney(u.cost, 'GBP')}
+                        </p>
+                        {u.description && (
+                          <p className="mt-1 text-[11px] text-slate-700">
+                            {u.description}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-[11px] text-blue-600 underline"
+                        onClick={() => startEditUpgrade(u)}
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
             )}
           </div>
 
-          {/* Service history */}
+          {/* Home Service History */}
           <div className="rounded border bg-white p-4 text-sm">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -1441,16 +1202,27 @@ export default function AssetDetailPage() {
               <button
                 type="button"
                 className="text-xs text-blue-600 underline"
-                onClick={() => setShowServiceForm(prev => !prev)}
+                onClick={() => {
+                  setShowServiceForm(prev => !prev);
+                  setServiceError(null);
+                }}
               >
                 {showServiceForm ? 'Cancel' : '+ Add service'}
               </button>
             </div>
 
+            <p className="mb-2 text-[11px] text-slate-500">
+              Log inspections and safety events: boiler services, chimney
+              sweeps, electrical checks, alarms, warranties and other
+              servicing that keeps the home safe and compliant.
+            </p>
+
             {showServiceForm && (
-              <form onSubmit={handleServiceSubmit} className="mb-3 space-y-2">
+              <form
+                onSubmit={handleServiceSubmit}
+                className="mb-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3"
+              >
                 <div className="grid gap-2 md:grid-cols-3">
-                  {/* Date */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium">
                       Date
@@ -1462,7 +1234,6 @@ export default function AssetDetailPage() {
                       className="w-full rounded border px-2 py-1 text-xs"
                     />
                   </div>
-                  {/* Provider */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium">
                       Provider
@@ -1470,20 +1241,19 @@ export default function AssetDetailPage() {
                     <input
                       type="text"
                       value={serviceProvider}
-                      onChange={e => setServiceProvider(e.target.value)}
+                      onChange={e =>
+                        setServiceProvider(e.target.value)
+                      }
                       className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. BoilerCare Ltd"
+                      placeholder="e.g. British Gas, Local sweep"
                     />
                   </div>
-                  {/* Cost */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium">
                       Cost (GBP)
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      step="0.01"
                       value={serviceCost}
                       onChange={e => setServiceCost(e.target.value)}
                       className="w-full rounded border px-2 py-1 text-xs"
@@ -1491,6 +1261,7 @@ export default function AssetDetailPage() {
                     />
                   </div>
                 </div>
+
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium">
                     Description
@@ -1500,16 +1271,17 @@ export default function AssetDetailPage() {
                     onChange={e =>
                       setServiceDescription(e.target.value)
                     }
-                    className="w-full rounded border px-2 py-1 text-xs"
-                    rows={2}
-                    placeholder="What was done? e.g. Annual boiler service and safety check."
+                    className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
+                    placeholder="What was done, room/area, any notes for next time…"
                   />
                 </div>
+
                 {serviceError && (
                   <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
                     {serviceError}
                   </div>
                 )}
+
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -1534,292 +1306,142 @@ export default function AssetDetailPage() {
 
             {services.length === 0 ? (
               <p className="text-xs text-slate-600">
-                Track things like boiler services, chimney sweeps, safety
-                checks and inspections here – effectively a service book for
-                your home.
+                Nothing logged yet. Start with boiler services, chimney,
+                electrical checks and any recurring safety or compliance
+                visits.
               </p>
             ) : (
-              <ul className="space-y-3">
-                {services.map(s => {
-                  const docs = serviceDocuments[s.id] ?? [];
-                  const isEditing = editingServiceId === s.id;
-                  const showDocForm = serviceDocFormForId === s.id;
-
-                  return (
-                    <li
+              <div className="space-y-2">
+                {services.map(s =>
+                  editingServiceId === s.id ? (
+                    <form
                       key={s.id}
-                      className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+                      onSubmit={handleServiceUpdate}
+                      className="space-y-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs"
                     >
-                      {isEditing ? (
-                        <form
-                          onSubmit={handleServiceUpdate}
-                          className="space-y-2"
-                        >
-                          <div className="grid gap-2 md:grid-cols-3">
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Date
-                              </label>
-                              <input
-                                type="date"
-                                value={editServiceDate}
-                                onChange={e =>
-                                  setEditServiceDate(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Provider
-                              </label>
-                              <input
-                                type="text"
-                                value={editServiceProvider}
-                                onChange={e =>
-                                  setEditServiceProvider(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-medium">
-                                Cost (GBP)
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={editServiceCost}
-                                onChange={e =>
-                                  setEditServiceCost(e.target.value)
-                                }
-                                className="w-full rounded border px-2 py-1 text-xs"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Description
-                            </label>
-                            <textarea
-                              value={editServiceDescription}
-                              onChange={e =>
-                                setEditServiceDescription(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                              rows={2}
-                            />
-                          </div>
-                          {editServiceError && (
-                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                              {editServiceError}
-                            </div>
-                          )}
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              className="text-xs text-slate-500"
-                              onClick={cancelEditService}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={editServiceSaving}
-                              className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                            >
-                              {editServiceSaving
-                                ? 'Saving…'
-                                : 'Save changes'}
-                            </button>
-                          </div>
-                        </form>
-                      ) : (
-                        <>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-medium">
-                                {s.description ?? 'Service'}
-                              </p>
-                              {s.provider && (
-                                <p className="mt-1 text-[11px] text-slate-600">
-                                  Provider: {s.provider}
-                                </p>
-                              )}
-                              {s.cost != null && (
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  Cost:{' '}
-                                  {formatMoney(
-                                    s.cost,
-                                    s.currency ?? 'GBP'
-                                  )}
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right text-[11px] text-slate-500">
-                              <p>
-                                {s.service_date
-                                  ? new Date(
-                                      s.service_date
-                                    ).toLocaleDateString('en-GB', {
-                                      year: 'numeric',
-                                      month: 'short',
-                                      day: 'numeric',
-                                    })
-                                  : ''}
-                              </p>
-                              <button
-                                type="button"
-                                className="mt-1 text-[11px] text-blue-600 underline"
-                                onClick={() => startEditService(s)}
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium">
+                            Date
+                          </label>
+                          <input
+                            type="date"
+                            value={editServiceDate}
+                            onChange={e =>
+                              setEditServiceDate(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium">
+                            Provider
+                          </label>
+                          <input
+                            type="text"
+                            value={editServiceProvider}
+                            onChange={e =>
+                              setEditServiceProvider(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium">
+                            Cost (GBP)
+                          </label>
+                          <input
+                            type="number"
+                            value={editServiceCost}
+                            onChange={e =>
+                              setEditServiceCost(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1 text-xs"
+                          />
+                        </div>
+                      </div>
 
-                          {/* Documents for this service */}
-                          <div className="mt-2 border-t border-slate-200 pt-2">
-                            <div className="mb-1 flex items-center justify-between">
-                              <p className="text-[11px] font-medium text-slate-600">
-                                Documents
-                              </p>
-                              <button
-                                type="button"
-                                className="text-[11px] text-blue-600 underline"
-                                onClick={() => {
-                                  setServiceDocFormForId(
-                                    showDocForm ? null : s.id
-                                  );
-                                  setServiceDocError(null);
-                                }}
-                              >
-                                {showDocForm ? 'Cancel' : '+ Add document'}
-                              </button>
-                            </div>
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-medium">
+                          Description
+                        </label>
+                        <textarea
+                          value={editServiceDescription}
+                          onChange={e =>
+                            setEditServiceDescription(e.target.value)
+                          }
+                          className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
+                        />
+                      </div>
 
-                            {showDocForm && (
-                              <form
-                                onSubmit={e =>
-                                  handleServiceDocSubmit(e, s.id)
-                                }
-                                className="mb-2 space-y-1"
-                              >
-                                <div className="grid gap-2 md:grid-cols-3">
-                                  <input
-                                    type="text"
-                                    value={serviceDocType}
-                                    onChange={e =>
-                                      setServiceDocType(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="Type (e.g. Certificate)"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={serviceDocTitle}
-                                    onChange={e =>
-                                      setServiceDocTitle(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="Title"
-                                  />
-                                  <input
-                                    type="url"
-                                    value={serviceDocUrl}
-                                    onChange={e =>
-                                      setServiceDocUrl(e.target.value)
-                                    }
-                                    className="w-full rounded border px-2 py-1 text-[11px]"
-                                    placeholder="URL"
-                                  />
-                                </div>
-                                {serviceDocError && (
-                                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                                    {serviceDocError}
-                                  </div>
-                                )}
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    type="button"
-                                    className="text-[11px] text-slate-500"
-                                    onClick={() => {
-                                      setServiceDocFormForId(null);
-                                      setServiceDocError(null);
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="submit"
-                                    disabled={serviceDocSaving}
-                                    className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
-                                  >
-                                    {serviceDocSaving
-                                      ? 'Saving…'
-                                      : 'Save document'}
-                                  </button>
-                                </div>
-                              </form>
-                            )}
-
-                            {docs.length === 0 ? (
-                              <p className="text-[11px] text-slate-500">
-                                No documents linked yet.
-                              </p>
-                            ) : (
-                              <ul className="space-y-1 text-[11px] text-slate-700">
-                                {docs.map(d => (
-                                  <li
-                                    key={d.id}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <div>
-                                      <span className="font-medium">
-                                        {d.title ??
-                                          d.doc_type ??
-                                          'Document'}
-                                      </span>
-                                      {d.doc_type && (
-                                        <span className="ml-1 text-slate-500">
-                                          ({d.doc_type})
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div>
-                                      {d.url ? (
-                                        <a
-                                          href={d.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-blue-600 underline"
-                                        >
-                                          Open
-                                        </a>
-                                      ) : (
-                                        <span className="text-slate-400">
-                                          No link
-                                        </span>
-                                      )}
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        </>
+                      {editServiceError && (
+                        <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                          {editServiceError}
+                        </div>
                       )}
-                    </li>
-                  );
-                })}
-              </ul>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="text-xs text-slate-500"
+                          onClick={cancelEditService}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={editServiceSaving}
+                          className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                        >
+                          {editServiceSaving ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div
+                      key={s.id}
+                      className="flex items-start justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <div>
+                        <p className="font-medium">
+                          {s.provider ?? 'Service'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {s.service_date
+                            ? new Date(
+                                s.service_date
+                              ).toLocaleDateString('en-GB', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })
+                            : 'Date not set'}
+                          {' · '}
+                          {formatMoney(s.cost, 'GBP')}
+                        </p>
+                        {s.description && (
+                          <p className="mt-1 text-[11px] text-slate-700">
+                            {s.description}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-[11px] text-blue-600 underline"
+                        onClick={() => startEditService(s)}
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
             )}
           </div>
-        </div>
+        </>
       )}
 
-      {/* Key documents (asset-level, for all asset types) */}
+      {/* Key documents (asset-level) */}
       <div className="rounded border bg-white p-4 text-sm">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -1828,7 +1450,11 @@ export default function AssetDetailPage() {
           <button
             type="button"
             className="text-xs text-blue-600 underline"
-            onClick={() => setShowDocumentForm(prev => !prev)}
+            onClick={() => {
+              setShowDocumentForm(prev => !prev);
+              setDocError(null);
+              setDocFile(null);
+            }}
           >
             {showDocumentForm ? 'Cancel' : '+ Add document'}
           </button>
@@ -1858,14 +1484,58 @@ export default function AssetDetailPage() {
                   value={docTitle}
                   onChange={e => setDocTitle(e.target.value)}
                   className="w-full rounded border px-2 py-1 text-xs"
-                  placeholder="e.g. Homebuyer survey (2023)"
+                  placeholder="e.g. Homebuyer survey (2024)"
                 />
               </div>
             </div>
+
+            {/* Drag & drop + file input */}
             <div className="space-y-1">
               <label className="block text-[11px] font-medium">
-                URL
+                File or URL
               </label>
+              <div
+                className={`rounded border px-3 py-2 text-[11px] ${
+                  docDragOver
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-dashed border-slate-300 bg-slate-50'
+                }`}
+                onDragOver={e => {
+                  e.preventDefault();
+                  setDocDragOver(true);
+                }}
+                onDragLeave={e => {
+                  e.preventDefault();
+                  setDocDragOver(false);
+                }}
+                onDrop={e => {
+                  e.preventDefault();
+                  setDocDragOver(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) {
+                    setDocFile(file);
+                  }
+                }}
+              >
+                <p className="mb-1">
+                  Drag & drop a file here, or choose from your computer.
+                </p>
+                <input
+                  type="file"
+                  onChange={e =>
+                    setDocFile(e.target.files?.[0] ?? null)
+                  }
+                  className="text-[11px]"
+                />
+                {docFile && (
+                  <p className="mt-1 text-[11px] text-slate-600">
+                    Selected: {docFile.name}
+                  </p>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Alternatively, paste a link:
+              </p>
               <input
                 type="url"
                 value={docUrl}
@@ -1874,6 +1544,7 @@ export default function AssetDetailPage() {
                 placeholder="https://…"
               />
             </div>
+
             {docError && (
               <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
                 {docError}
@@ -1886,6 +1557,7 @@ export default function AssetDetailPage() {
                 onClick={() => {
                   setShowDocumentForm(false);
                   setDocError(null);
+                  setDocFile(null);
                 }}
               >
                 Cancel
