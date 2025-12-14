@@ -190,6 +190,23 @@ export default function AssetDetailPage() {
   const [upgradeSaving, setUpgradeSaving] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
+  // Inline "Add service" form state
+  const [showServiceForm, setShowServiceForm] = useState(false);
+  const [serviceDate, setServiceDate] = useState('');
+  const [serviceProvider, setServiceProvider] = useState('');
+  const [serviceDescription, setServiceDescription] = useState('');
+  const [serviceCost, setServiceCost] = useState('');
+  const [serviceSaving, setServiceSaving] = useState(false);
+  const [serviceError, setServiceError] = useState<string | null>(null);
+
+  // Inline "Add document" form state
+  const [showDocumentForm, setShowDocumentForm] = useState(false);
+  const [docType, setDocType] = useState('');
+  const [docTitle, setDocTitle] = useState('');
+  const [docUrl, setDocUrl] = useState('');
+  const [docSaving, setDocSaving] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!assetId) return;
 
@@ -382,10 +399,8 @@ export default function AssetDetailPage() {
         throw new Error('Could not save upgrade.');
       }
 
-      // Prepend new upgrade to the list
       setUpgrades(prev => [data as Upgrade, ...prev]);
 
-      // Reset form
       setUpgradeTitle('');
       setUpgradeDescription('');
       setUpgradeDate('');
@@ -396,6 +411,87 @@ export default function AssetDetailPage() {
       setUpgradeError(err.message || 'Something went wrong while saving.');
     } finally {
       setUpgradeSaving(false);
+    }
+  };
+
+  const handleServiceSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assetId) return;
+
+    setServiceError(null);
+    setServiceSaving(true);
+
+    try {
+      const costNumber = serviceCost ? parseFloat(serviceCost) : null;
+
+      const { data, error } = await supabase
+        .from('asset_services')
+        .insert({
+          asset_id: assetId,
+          service_date: serviceDate || null,
+          provider: serviceProvider || null,
+          description: serviceDescription || null,
+          cost: costNumber,
+          currency: 'GBP',
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not save service.');
+      }
+
+      setServices(prev => [data as Service, ...prev]);
+
+      setServiceDate('');
+      setServiceProvider('');
+      setServiceDescription('');
+      setServiceCost('');
+      setShowServiceForm(false);
+    } catch (err: any) {
+      console.error(err);
+      setServiceError(err.message || 'Something went wrong while saving.');
+    } finally {
+      setServiceSaving(false);
+    }
+  };
+
+  const handleDocumentSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assetId) return;
+
+    setDocError(null);
+    setDocSaving(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('asset_documents')
+        .insert({
+          asset_id: assetId,
+          doc_type: docType || null,
+          title: docTitle || null,
+          url: docUrl || null,
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not save document.');
+      }
+
+      setDocuments(prev => [data as Document, ...prev]);
+
+      setDocType('');
+      setDocTitle('');
+      setDocUrl('');
+      setShowDocumentForm(false);
+    } catch (err: any) {
+      console.error(err);
+      setDocError(err.message || 'Something went wrong while saving.');
+    } finally {
+      setDocSaving(false);
     }
   };
 
@@ -715,7 +811,9 @@ export default function AssetDetailPage() {
                   </label>
                   <textarea
                     value={upgradeDescription}
-                    onChange={e => setUpgradeDescription(e.target.value)}
+                    onChange={e =>
+                      setUpgradeDescription(e.target.value)
+                    }
                     className="w-full rounded border px-2 py-1 text-xs"
                     rows={2}
                     placeholder="What was upgraded? e.g. New Corston switches throughout ground floor."
@@ -795,9 +893,104 @@ export default function AssetDetailPage() {
 
           {/* Service history */}
           <div className="rounded border bg-white p-4 text-sm">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-              Home service history
-            </p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Home service history
+              </p>
+              <button
+                type="button"
+                className="text-xs text-blue-600 underline"
+                onClick={() => setShowServiceForm(prev => !prev)}
+              >
+                {showServiceForm ? 'Cancel' : '+ Add service'}
+              </button>
+            </div>
+
+            {showServiceForm && (
+              <form onSubmit={handleServiceSubmit} className="mb-3 space-y-2">
+                <div className="grid gap-2 md:grid-cols-3">
+                  {/* Date */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={serviceDate}
+                      onChange={e => setServiceDate(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                    />
+                  </div>
+                  {/* Provider */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Provider
+                    </label>
+                    <input
+                      type="text"
+                      value={serviceProvider}
+                      onChange={e => setServiceProvider(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                      placeholder="e.g. BoilerCare Ltd"
+                    />
+                  </div>
+                  {/* Cost */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Cost (GBP)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={serviceCost}
+                      onChange={e => setServiceCost(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                      placeholder="e.g. 120"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium">
+                    Description
+                  </label>
+                  <textarea
+                    value={serviceDescription}
+                    onChange={e =>
+                      setServiceDescription(e.target.value)
+                    }
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    rows={2}
+                    placeholder="What was done? e.g. Annual boiler service and safety check."
+                  />
+                </div>
+                {serviceError && (
+                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                    {serviceError}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500"
+                    onClick={() => {
+                      setShowServiceForm(false);
+                      setServiceError(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={serviceSaving}
+                    className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                  >
+                    {serviceSaving ? 'Saving…' : 'Save service'}
+                  </button>
+                </div>
+              </form>
+            )}
+
             {services.length === 0 ? (
               <p className="text-xs text-slate-600">
                 Track things like boiler services, chimney sweeps, safety
@@ -848,14 +1041,91 @@ export default function AssetDetailPage() {
 
       {/* Key documents (for all asset types) */}
       <div className="rounded border bg-white p-4 text-sm">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Key documents
-        </p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Key documents
+          </p>
+          <button
+            type="button"
+            className="text-xs text-blue-600 underline"
+            onClick={() => setShowDocumentForm(prev => !prev)}
+          >
+            {showDocumentForm ? 'Cancel' : '+ Add document'}
+          </button>
+        </div>
+
+        {showDocumentForm && (
+          <form onSubmit={handleDocumentSubmit} className="mb-3 space-y-2">
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium">
+                  Type
+                </label>
+                <input
+                  type="text"
+                  value={docType}
+                  onChange={e => setDocType(e.target.value)}
+                  className="w-full rounded border px-2 py-1 text-xs"
+                  placeholder="e.g. Survey, Certificate, Warranty"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="block text-[11px] font-medium">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={docTitle}
+                  onChange={e => setDocTitle(e.target.value)}
+                  className="w-full rounded border px-2 py-1 text-xs"
+                  placeholder="e.g. Homebuyer survey (2023)"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[11px] font-medium">
+                URL
+              </label>
+              <input
+                type="url"
+                value={docUrl}
+                onChange={e => setDocUrl(e.target.value)}
+                className="w-full rounded border px-2 py-1 text-xs"
+                placeholder="https://…"
+              />
+            </div>
+            {docError && (
+              <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                {docError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="text-xs text-slate-500"
+                onClick={() => {
+                  setShowDocumentForm(false);
+                  setDocError(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={docSaving}
+                className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+              >
+                {docSaving ? 'Saving…' : 'Save document'}
+              </button>
+            </div>
+          </form>
+        )}
+
         {documents.length === 0 ? (
           <p className="text-xs text-slate-600">
             Use this space to link important documents such as surveys, title
             docs, guarantees, safety certificates or manuals. For now this is
-            read-only – in the future you&apos;ll be able to upload files
+            URL-based – in the future you&apos;ll be able to upload files
             directly.
           </p>
         ) : (
@@ -878,11 +1148,14 @@ export default function AssetDetailPage() {
                 <div className="text-right text-[11px]">
                   {d.uploaded_at && (
                     <p className="mb-1 text-slate-500">
-                      {new Date(d.uploaded_at).toLocaleDateString('en-GB', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+                      {new Date(d.uploaded_at).toLocaleDateString(
+                        'en-GB',
+                        {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        }
+                      )}
                     </p>
                   )}
                   {d.url ? (
