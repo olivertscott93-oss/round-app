@@ -180,7 +180,6 @@ export default function AssetDetailPage() {
   const [loading, setLoading] = useState(true);
   const [magicMessage, setMagicMessage] = useState<string | null>(null);
   const [magicLoading, setMagicLoading] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
 
   // Inline "Add upgrade" form state
   const [showUpgradeForm, setShowUpgradeForm] = useState(false);
@@ -205,8 +204,6 @@ export default function AssetDetailPage() {
         router.push('/login');
         return;
       }
-
-      setUserId(user.id);
 
       // 1) Load the asset (with category)
       const { data: assetData, error: assetError } = await supabase
@@ -359,7 +356,7 @@ export default function AssetDetailPage() {
 
   const handleUpgradeSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!assetId || !userId) return;
+    if (!assetId) return;
 
     setUpgradeError(null);
     setUpgradeSaving(true);
@@ -371,8 +368,6 @@ export default function AssetDetailPage() {
         .from('asset_upgrades')
         .insert({
           asset_id: assetId,
-          // if your table has owner_id, this will keep things clean
-          owner_id: userId,
           title: upgradeTitle || null,
           description: upgradeDescription || null,
           upgrade_date: upgradeDate || null,
