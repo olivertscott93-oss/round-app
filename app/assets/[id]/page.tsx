@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -180,6 +180,16 @@ export default function AssetDetailPage() {
   const [loading, setLoading] = useState(true);
   const [magicMessage, setMagicMessage] = useState<string | null>(null);
   const [magicLoading, setMagicLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Inline "Add upgrade" form state
+  const [showUpgradeForm, setShowUpgradeForm] = useState(false);
+  const [upgradeTitle, setUpgradeTitle] = useState('');
+  const [upgradeDescription, setUpgradeDescription] = useState('');
+  const [upgradeDate, setUpgradeDate] = useState('');
+  const [upgradeCost, setUpgradeCost] = useState('');
+  const [upgradeSaving, setUpgradeSaving] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!assetId) return;
@@ -195,6 +205,8 @@ export default function AssetDetailPage() {
         router.push('/login');
         return;
       }
+
+      setUserId(user.id);
 
       // 1) Load the asset (with category)
       const { data: assetData, error: assetError } = await supabase
@@ -261,7 +273,7 @@ export default function AssetDetailPage() {
         setValuations(valData as Valuation[]);
       }
 
-      // 3) Load upgrades (if table exists)
+      // 3) Load upgrades
       const { data: upData, error: upError } = await supabase
         .from('asset_upgrades')
         .select(
@@ -343,6 +355,53 @@ export default function AssetDetailPage() {
     setTimeout(() => {
       setMagicLoading(false);
     }, 600);
+  };
+
+  const handleUpgradeSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assetId || !userId) return;
+
+    setUpgradeError(null);
+    setUpgradeSaving(true);
+
+    try {
+      const costNumber = upgradeCost ? parseFloat(upgradeCost) : null;
+
+      const { data, error } = await supabase
+        .from('asset_upgrades')
+        .insert({
+          asset_id: assetId,
+          // if your table has owner_id, this will keep things clean
+          owner_id: userId,
+          title: upgradeTitle || null,
+          description: upgradeDescription || null,
+          upgrade_date: upgradeDate || null,
+          cost: costNumber,
+          currency: 'GBP',
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not save upgrade.');
+      }
+
+      // Prepend new upgrade to the list
+      setUpgrades(prev => [data as Upgrade, ...prev]);
+
+      // Reset form
+      setUpgradeTitle('');
+      setUpgradeDescription('');
+      setUpgradeDate('');
+      setUpgradeCost('');
+      setShowUpgradeForm(false);
+    } catch (err: any) {
+      console.error(err);
+      setUpgradeError(err.message || 'Something went wrong while saving.');
+    } finally {
+      setUpgradeSaving(false);
+    }
   };
 
   if (loading || !asset) {
@@ -601,9 +660,99 @@ export default function AssetDetailPage() {
         <div className="grid gap-4 md:grid-cols-3">
           {/* Upgrades */}
           <div className="rounded border bg-white p-4 text-sm md:col-span-2">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-              Upgrades & improvements
-            </p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Upgrades & improvements
+              </p>
+              <button
+                type="button"
+                className="text-xs text-blue-600 underline"
+                onClick={() => setShowUpgradeForm(prev => !prev)}
+              >
+                {showUpgradeForm ? 'Cancel' : '+ Add upgrade'}
+              </button>
+            </div>
+
+            {showUpgradeForm && (
+              <form onSubmit={handleUpgradeSubmit} className="mb-3 space-y-2">
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      value={upgradeTitle}
+                      onChange={e => setUpgradeTitle(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                      placeholder="e.g. Kitchen refurbishment"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={upgradeDate}
+                      onChange={e => setUpgradeDate(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium">
+                      Cost (GBP)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={upgradeCost}
+                      onChange={e => setUpgradeCost(e.target.value)}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                      placeholder="e.g. 1000"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium">
+                    Description
+                  </label>
+                  <textarea
+                    value={upgradeDescription}
+                    onChange={e => setUpgradeDescription(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    rows={2}
+                    placeholder="What was upgraded? e.g. New Corston switches throughout ground floor."
+                  />
+                </div>
+                {upgradeError && (
+                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                    {upgradeError}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500"
+                    onClick={() => {
+                      setShowUpgradeForm(false);
+                      setUpgradeError(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={upgradeSaving}
+                    className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                  >
+                    {upgradeSaving ? 'Saving…' : 'Save upgrade'}
+                  </button>
+                </div>
+              </form>
+            )}
+
             {upgrades.length === 0 ? (
               <p className="text-xs text-slate-600">
                 Use this section to capture major upgrades to your home –
