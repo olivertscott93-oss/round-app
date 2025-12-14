@@ -60,6 +60,8 @@ type Document = {
   title: string | null;
   url: string | null;
   uploaded_at: string | null;
+  upgrade_id: string | null;
+  service_id: string | null;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
@@ -176,7 +178,13 @@ export default function AssetDetailPage() {
   const [valuations, setValuations] = useState<Valuation[]>([]);
   const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [assetDocuments, setAssetDocuments] = useState<Document[]>([]);
+  const [upgradeDocuments, setUpgradeDocuments] = useState<
+    Record<string, Document[]>
+  >({});
+  const [serviceDocuments, setServiceDocuments] = useState<
+    Record<string, Document[]>
+  >({});
   const [loading, setLoading] = useState(true);
   const [magicMessage, setMagicMessage] = useState<string | null>(null);
   const [magicLoading, setMagicLoading] = useState(false);
@@ -190,6 +198,15 @@ export default function AssetDetailPage() {
   const [upgradeSaving, setUpgradeSaving] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
+  // EDIT upgrade state
+  const [editingUpgradeId, setEditingUpgradeId] = useState<string | null>(null);
+  const [editUpgradeTitle, setEditUpgradeTitle] = useState('');
+  const [editUpgradeDescription, setEditUpgradeDescription] = useState('');
+  const [editUpgradeDate, setEditUpgradeDate] = useState('');
+  const [editUpgradeCost, setEditUpgradeCost] = useState('');
+  const [editUpgradeSaving, setEditUpgradeSaving] = useState(false);
+  const [editUpgradeError, setEditUpgradeError] = useState<string | null>(null);
+
   // Inline "Add service" form state
   const [showServiceForm, setShowServiceForm] = useState(false);
   const [serviceDate, setServiceDate] = useState('');
@@ -199,13 +216,42 @@ export default function AssetDetailPage() {
   const [serviceSaving, setServiceSaving] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
 
-  // Inline "Add document" form state
+  // EDIT service state
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [editServiceDate, setEditServiceDate] = useState('');
+  const [editServiceProvider, setEditServiceProvider] = useState('');
+  const [editServiceDescription, setEditServiceDescription] = useState('');
+  const [editServiceCost, setEditServiceCost] = useState('');
+  const [editServiceSaving, setEditServiceSaving] = useState(false);
+  const [editServiceError, setEditServiceError] = useState<string | null>(null);
+
+  // Asset-level "Add document" form state
   const [showDocumentForm, setShowDocumentForm] = useState(false);
   const [docType, setDocType] = useState('');
   const [docTitle, setDocTitle] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docSaving, setDocSaving] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+
+  // Upgrade-level doc form
+  const [upgradeDocFormForId, setUpgradeDocFormForId] = useState<string | null>(
+    null
+  );
+  const [upgradeDocType, setUpgradeDocType] = useState('');
+  const [upgradeDocTitle, setUpgradeDocTitle] = useState('');
+  const [upgradeDocUrl, setUpgradeDocUrl] = useState('');
+  const [upgradeDocSaving, setUpgradeDocSaving] = useState(false);
+  const [upgradeDocError, setUpgradeDocError] = useState<string | null>(null);
+
+  // Service-level doc form
+  const [serviceDocFormForId, setServiceDocFormForId] = useState<string | null>(
+    null
+  );
+  const [serviceDocType, setServiceDocType] = useState('');
+  const [serviceDocTitle, setServiceDocTitle] = useState('');
+  const [serviceDocUrl, setServiceDocUrl] = useState('');
+  const [serviceDocSaving, setServiceDocSaving] = useState(false);
+  const [serviceDocError, setServiceDocError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!assetId) return;
@@ -327,7 +373,7 @@ export default function AssetDetailPage() {
         setServices(svcData as Service[]);
       }
 
-      // 5) Load documents
+      // 5) Load documents (asset-level + per-upgrade + per-service)
       const { data: docData, error: docError } = await supabase
         .from('asset_documents')
         .select(
@@ -336,14 +382,36 @@ export default function AssetDetailPage() {
           doc_type,
           title,
           url,
-          uploaded_at
+          uploaded_at,
+          upgrade_id,
+          service_id
         `
         )
         .eq('asset_id', assetId)
         .order('uploaded_at', { ascending: false });
 
       if (!docError && docData) {
-        setDocuments(docData as Document[]);
+        const docs = docData as unknown as Document[];
+
+        const assetDocs: Document[] = [];
+        const upgradeMap: Record<string, Document[]> = {};
+        const serviceMap: Record<string, Document[]> = {};
+
+        for (const d of docs) {
+          if (d.upgrade_id) {
+            if (!upgradeMap[d.upgrade_id]) upgradeMap[d.upgrade_id] = [];
+            upgradeMap[d.upgrade_id].push(d);
+          } else if (d.service_id) {
+            if (!serviceMap[d.service_id]) serviceMap[d.service_id] = [];
+            serviceMap[d.service_id].push(d);
+          } else {
+            assetDocs.push(d);
+          }
+        }
+
+        setAssetDocuments(assetDocs);
+        setUpgradeDocuments(upgradeMap);
+        setServiceDocuments(serviceMap);
       }
 
       setLoading(false);
@@ -356,7 +424,7 @@ export default function AssetDetailPage() {
     router.push('/dashboard');
   };
 
-  const handleEdit = () => {
+  const handleEditAsset = () => {
     router.push(`/assets/${assetId}/edit`);
   };
 
@@ -371,6 +439,7 @@ export default function AssetDetailPage() {
     }, 600);
   };
 
+  // CREATE upgrade
   const handleUpgradeSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
@@ -414,6 +483,68 @@ export default function AssetDetailPage() {
     }
   };
 
+  // EDIT upgrade
+  const startEditUpgrade = (u: Upgrade) => {
+    setEditingUpgradeId(u.id);
+    setEditUpgradeTitle(u.title ?? '');
+    setEditUpgradeDescription(u.description ?? '');
+    setEditUpgradeDate(u.upgrade_date ?? '');
+    setEditUpgradeCost(u.cost != null ? String(u.cost) : '');
+    setEditUpgradeError(null);
+  };
+
+  const cancelEditUpgrade = () => {
+    setEditingUpgradeId(null);
+    setEditUpgradeTitle('');
+    setEditUpgradeDescription('');
+    setEditUpgradeDate('');
+    setEditUpgradeCost('');
+    setEditUpgradeError(null);
+  };
+
+  const handleUpgradeUpdate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingUpgradeId) return;
+
+    setEditUpgradeError(null);
+    setEditUpgradeSaving(true);
+
+    try {
+      const costNumber = editUpgradeCost ? parseFloat(editUpgradeCost) : null;
+
+      const { data, error } = await supabase
+        .from('asset_upgrades')
+        .update({
+          title: editUpgradeTitle || null,
+          description: editUpgradeDescription || null,
+          upgrade_date: editUpgradeDate || null,
+          cost: costNumber,
+        } as any)
+        .eq('id', editingUpgradeId)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not update upgrade.');
+      }
+
+      const updated = data as Upgrade;
+
+      setUpgrades(prev =>
+        prev.map(u => (u.id === updated.id ? updated : u))
+      );
+
+      cancelEditUpgrade();
+    } catch (err: any) {
+      console.error(err);
+      setEditUpgradeError(err.message || 'Something went wrong while updating.');
+    } finally {
+      setEditUpgradeSaving(false);
+    }
+  };
+
+  // CREATE service
   const handleServiceSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
@@ -457,6 +588,68 @@ export default function AssetDetailPage() {
     }
   };
 
+  // EDIT service
+  const startEditService = (s: Service) => {
+    setEditingServiceId(s.id);
+    setEditServiceDate(s.service_date ?? '');
+    setEditServiceProvider(s.provider ?? '');
+    setEditServiceDescription(s.description ?? '');
+    setEditServiceCost(s.cost != null ? String(s.cost) : '');
+    setEditServiceError(null);
+  };
+
+  const cancelEditService = () => {
+    setEditingServiceId(null);
+    setEditServiceDate('');
+    setEditServiceProvider('');
+    setEditServiceDescription('');
+    setEditServiceCost('');
+    setEditServiceError(null);
+  };
+
+  const handleServiceUpdate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingServiceId) return;
+
+    setEditServiceError(null);
+    setEditServiceSaving(true);
+
+    try {
+      const costNumber = editServiceCost ? parseFloat(editServiceCost) : null;
+
+      const { data, error } = await supabase
+        .from('asset_services')
+        .update({
+          service_date: editServiceDate || null,
+          provider: editServiceProvider || null,
+          description: editServiceDescription || null,
+          cost: costNumber,
+        } as any)
+        .eq('id', editingServiceId)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not update service.');
+      }
+
+      const updated = data as Service;
+
+      setServices(prev =>
+        prev.map(s => (s.id === updated.id ? updated : s))
+      );
+
+      cancelEditService();
+    } catch (err: any) {
+      console.error(err);
+      setEditServiceError(err.message || 'Something went wrong while updating.');
+    } finally {
+      setEditServiceSaving(false);
+    }
+  };
+
+  // CREATE asset-level doc
   const handleDocumentSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
@@ -481,7 +674,8 @@ export default function AssetDetailPage() {
         throw new Error('Could not save document.');
       }
 
-      setDocuments(prev => [data as Document, ...prev]);
+      const doc = data as Document;
+      setAssetDocuments(prev => [doc, ...prev]);
 
       setDocType('');
       setDocTitle('');
@@ -495,6 +689,102 @@ export default function AssetDetailPage() {
     }
   };
 
+  // CREATE upgrade-level doc
+  const handleUpgradeDocSubmit = async (e: FormEvent, upgradeId: string) => {
+    e.preventDefault();
+    if (!assetId) return;
+
+    setUpgradeDocError(null);
+    setUpgradeDocSaving(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('asset_documents')
+        .insert({
+          asset_id: assetId,
+          upgrade_id: upgradeId,
+          doc_type: upgradeDocType || null,
+          title: upgradeDocTitle || null,
+          url: upgradeDocUrl || null,
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not save document.');
+      }
+
+      const doc = data as Document;
+
+      setUpgradeDocuments(prev => {
+        const existing = prev[upgradeId] ?? [];
+        return {
+          ...prev,
+          [upgradeId]: [doc, ...existing],
+        };
+      });
+
+      setUpgradeDocType('');
+      setUpgradeDocTitle('');
+      setUpgradeDocUrl('');
+      setUpgradeDocFormForId(null);
+    } catch (err: any) {
+      console.error(err);
+      setUpgradeDocError(err.message || 'Something went wrong while saving.');
+    } finally {
+      setUpgradeDocSaving(false);
+    }
+  };
+
+  // CREATE service-level doc
+  const handleServiceDocSubmit = async (e: FormEvent, serviceId: string) => {
+    e.preventDefault();
+    if (!assetId) return;
+
+    setServiceDocError(null);
+    setServiceDocSaving(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('asset_documents')
+        .insert({
+          asset_id: assetId,
+          service_id: serviceId,
+          doc_type: serviceDocType || null,
+          title: serviceDocTitle || null,
+          url: serviceDocUrl || null,
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not save document.');
+      }
+
+      const doc = data as Document;
+
+      setServiceDocuments(prev => {
+        const existing = prev[serviceId] ?? [];
+        return {
+          ...prev,
+          [serviceId]: [doc, ...existing],
+        };
+      });
+
+      setServiceDocType('');
+      setServiceDocTitle('');
+      setServiceDocUrl('');
+      setServiceDocFormForId(null);
+    } catch (err: any) {
+      console.error(err);
+      setServiceDocError(err.message || 'Something went wrong while saving.');
+    } finally {
+      setServiceDocSaving(false);
+    }
+  };
+
   if (loading || !asset) {
     return <div className="p-6">Loading asset…</div>;
   }
@@ -504,7 +794,6 @@ export default function AssetDetailPage() {
   const categoryName = getCategoryName(asset);
   const isHome = isHomeLikeAsset(categoryName);
 
-  // NEW: total upgrades invested (for this asset)
   const upgradesTotal = upgrades.reduce(
     (sum, u) => sum + (u.cost ?? 0),
     0
@@ -521,7 +810,7 @@ export default function AssetDetailPage() {
           ← Back to portfolio
         </button>
         <button
-          onClick={handleEdit}
+          onClick={handleEditAsset}
           className="rounded border px-3 py-1 text-sm"
         >
           Edit asset
@@ -868,40 +1157,277 @@ export default function AssetDetailPage() {
                 line becomes part of the home&apos;s value story.
               </p>
             ) : (
-              <ul className="space-y-2">
-                {upgrades.map(u => (
-                  <li
-                    key={u.id}
-                    className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">
-                        {u.title ?? 'Untitled upgrade'}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {u.upgrade_date
-                          ? new Date(u.upgrade_date).toLocaleDateString(
-                              'en-GB',
-                              {
-                                year: 'numeric',
-                                month: 'short',
+              <ul className="space-y-3">
+                {upgrades.map(u => {
+                  const docs = upgradeDocuments[u.id] ?? [];
+                  const isEditing = editingUpgradeId === u.id;
+                  const showDocForm = upgradeDocFormForId === u.id;
+
+                  return (
+                    <li
+                      key={u.id}
+                      className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      {isEditing ? (
+                        <form
+                          onSubmit={handleUpgradeUpdate}
+                          className="space-y-2"
+                        >
+                          <div className="grid gap-2 md:grid-cols-3">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Title
+                              </label>
+                              <input
+                                type="text"
+                                value={editUpgradeTitle}
+                                onChange={e =>
+                                  setEditUpgradeTitle(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Date
+                              </label>
+                              <input
+                                type="date"
+                                value={editUpgradeDate}
+                                onChange={e =>
+                                  setEditUpgradeDate(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Cost (GBP)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editUpgradeCost}
+                                onChange={e =>
+                                  setEditUpgradeCost(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-medium">
+                              Description
+                            </label>
+                            <textarea
+                              value={editUpgradeDescription}
+                              onChange={e =>
+                                setEditUpgradeDescription(e.target.value)
                               }
-                            )
-                          : ''}
-                      </p>
-                    </div>
-                    {u.description && (
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        {u.description}
-                      </p>
-                    )}
-                    {u.cost != null && (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Cost: {formatMoney(u.cost, u.currency ?? 'GBP')}
-                      </p>
-                    )}
-                  </li>
-                ))}
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              rows={2}
+                            />
+                          </div>
+                          {editUpgradeError && (
+                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                              {editUpgradeError}
+                            </div>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="text-xs text-slate-500"
+                              onClick={cancelEditUpgrade}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={editUpgradeSaving}
+                              className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                            >
+                              {editUpgradeSaving ? 'Saving…' : 'Save changes'}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">
+                                {u.title ?? 'Untitled upgrade'}
+                              </p>
+                              {u.description && (
+                                <p className="mt-1 text-[11px] text-slate-600">
+                                  {u.description}
+                                </p>
+                              )}
+                              {u.cost != null && (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  Cost:{' '}
+                                  {formatMoney(
+                                    u.cost,
+                                    u.currency ?? 'GBP'
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right text-[11px] text-slate-500">
+                              <p>
+                                {u.upgrade_date
+                                  ? new Date(
+                                      u.upgrade_date
+                                    ).toLocaleDateString('en-GB', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                    })
+                                  : ''}
+                              </p>
+                              <button
+                                type="button"
+                                className="mt-1 text-[11px] text-blue-600 underline"
+                                onClick={() => startEditUpgrade(u)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Documents for this upgrade */}
+                          <div className="mt-2 border-t border-slate-200 pt-2">
+                            <div className="mb-1 flex items-center justify-between">
+                              <p className="text-[11px] font-medium text-slate-600">
+                                Documents
+                              </p>
+                              <button
+                                type="button"
+                                className="text-[11px] text-blue-600 underline"
+                                onClick={() => {
+                                  setUpgradeDocFormForId(
+                                    showDocForm ? null : u.id
+                                  );
+                                  setUpgradeDocError(null);
+                                }}
+                              >
+                                {showDocForm ? 'Cancel' : '+ Add document'}
+                              </button>
+                            </div>
+
+                            {showDocForm && (
+                              <form
+                                onSubmit={e =>
+                                  handleUpgradeDocSubmit(e, u.id)
+                                }
+                                className="mb-2 space-y-1"
+                              >
+                                <div className="grid gap-2 md:grid-cols-3">
+                                  <input
+                                    type="text"
+                                    value={upgradeDocType}
+                                    onChange={e =>
+                                      setUpgradeDocType(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="Type (e.g. Warranty)"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={upgradeDocTitle}
+                                    onChange={e =>
+                                      setUpgradeDocTitle(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="Title"
+                                  />
+                                  <input
+                                    type="url"
+                                    value={upgradeDocUrl}
+                                    onChange={e =>
+                                      setUpgradeDocUrl(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="URL"
+                                  />
+                                </div>
+                                {upgradeDocError && (
+                                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                                    {upgradeDocError}
+                                  </div>
+                                )}
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    className="text-[11px] text-slate-500"
+                                    onClick={() => {
+                                      setUpgradeDocFormForId(null);
+                                      setUpgradeDocError(null);
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    disabled={upgradeDocSaving}
+                                    className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
+                                  >
+                                    {upgradeDocSaving
+                                      ? 'Saving…'
+                                      : 'Save document'}
+                                  </button>
+                                </div>
+                              </form>
+                            )}
+
+                            {docs.length === 0 ? (
+                              <p className="text-[11px] text-slate-500">
+                                No documents linked yet.
+                              </p>
+                            ) : (
+                              <ul className="space-y-1 text-[11px] text-slate-700">
+                                {docs.map(d => (
+                                  <li
+                                    key={d.id}
+                                    className="flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <span className="font-medium">
+                                        {d.title ??
+                                          d.doc_type ??
+                                          'Document'}
+                                      </span>
+                                      {d.doc_type && (
+                                        <span className="ml-1 text-slate-500">
+                                          ({d.doc_type})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      {d.url ? (
+                                        <a
+                                          href={d.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-blue-600 underline"
+                                        >
+                                          Open
+                                        </a>
+                                      ) : (
+                                        <span className="text-slate-400">
+                                          No link
+                                        </span>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -1013,52 +1539,291 @@ export default function AssetDetailPage() {
                 your home.
               </p>
             ) : (
-              <ul className="space-y-2">
-                {services.map(s => (
-                  <li
-                    key={s.id}
-                    className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">
-                        {s.description ?? 'Service'}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {s.service_date
-                          ? new Date(s.service_date).toLocaleDateString(
-                              'en-GB',
-                              {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
+              <ul className="space-y-3">
+                {services.map(s => {
+                  const docs = serviceDocuments[s.id] ?? [];
+                  const isEditing = editingServiceId === s.id;
+                  const showDocForm = serviceDocFormForId === s.id;
+
+                  return (
+                    <li
+                      key={s.id}
+                      className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      {isEditing ? (
+                        <form
+                          onSubmit={handleServiceUpdate}
+                          className="space-y-2"
+                        >
+                          <div className="grid gap-2 md:grid-cols-3">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Date
+                              </label>
+                              <input
+                                type="date"
+                                value={editServiceDate}
+                                onChange={e =>
+                                  setEditServiceDate(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Provider
+                              </label>
+                              <input
+                                type="text"
+                                value={editServiceProvider}
+                                onChange={e =>
+                                  setEditServiceProvider(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-medium">
+                                Cost (GBP)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editServiceCost}
+                                onChange={e =>
+                                  setEditServiceCost(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-medium">
+                              Description
+                            </label>
+                            <textarea
+                              value={editServiceDescription}
+                              onChange={e =>
+                                setEditServiceDescription(e.target.value)
                               }
-                            )
-                          : ''}
-                      </p>
-                    </div>
-                    {s.provider && (
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        Provider: {s.provider}
-                      </p>
-                    )}
-                    {s.cost != null && (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Cost: {formatMoney(s.cost, s.currency ?? 'GBP')}
-                      </p>
-                    )}
-                  </li>
-                ))}
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              rows={2}
+                            />
+                          </div>
+                          {editServiceError && (
+                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                              {editServiceError}
+                            </div>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="text-xs text-slate-500"
+                              onClick={cancelEditService}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={editServiceSaving}
+                              className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+                            >
+                              {editServiceSaving
+                                ? 'Saving…'
+                                : 'Save changes'}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">
+                                {s.description ?? 'Service'}
+                              </p>
+                              {s.provider && (
+                                <p className="mt-1 text-[11px] text-slate-600">
+                                  Provider: {s.provider}
+                                </p>
+                              )}
+                              {s.cost != null && (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  Cost:{' '}
+                                  {formatMoney(
+                                    s.cost,
+                                    s.currency ?? 'GBP'
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right text-[11px] text-slate-500">
+                              <p>
+                                {s.service_date
+                                  ? new Date(
+                                      s.service_date
+                                    ).toLocaleDateString('en-GB', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric',
+                                    })
+                                  : ''}
+                              </p>
+                              <button
+                                type="button"
+                                className="mt-1 text-[11px] text-blue-600 underline"
+                                onClick={() => startEditService(s)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Documents for this service */}
+                          <div className="mt-2 border-t border-slate-200 pt-2">
+                            <div className="mb-1 flex items-center justify-between">
+                              <p className="text-[11px] font-medium text-slate-600">
+                                Documents
+                              </p>
+                              <button
+                                type="button"
+                                className="text-[11px] text-blue-600 underline"
+                                onClick={() => {
+                                  setServiceDocFormForId(
+                                    showDocForm ? null : s.id
+                                  );
+                                  setServiceDocError(null);
+                                }}
+                              >
+                                {showDocForm ? 'Cancel' : '+ Add document'}
+                              </button>
+                            </div>
+
+                            {showDocForm && (
+                              <form
+                                onSubmit={e =>
+                                  handleServiceDocSubmit(e, s.id)
+                                }
+                                className="mb-2 space-y-1"
+                              >
+                                <div className="grid gap-2 md:grid-cols-3">
+                                  <input
+                                    type="text"
+                                    value={serviceDocType}
+                                    onChange={e =>
+                                      setServiceDocType(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="Type (e.g. Certificate)"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={serviceDocTitle}
+                                    onChange={e =>
+                                      setServiceDocTitle(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="Title"
+                                  />
+                                  <input
+                                    type="url"
+                                    value={serviceDocUrl}
+                                    onChange={e =>
+                                      setServiceDocUrl(e.target.value)
+                                    }
+                                    className="w-full rounded border px-2 py-1 text-[11px]"
+                                    placeholder="URL"
+                                  />
+                                </div>
+                                {serviceDocError && (
+                                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                                    {serviceDocError}
+                                  </div>
+                                )}
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    className="text-[11px] text-slate-500"
+                                    onClick={() => {
+                                      setServiceDocFormForId(null);
+                                      setServiceDocError(null);
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    disabled={serviceDocSaving}
+                                    className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
+                                  >
+                                    {serviceDocSaving
+                                      ? 'Saving…'
+                                      : 'Save document'}
+                                  </button>
+                                </div>
+                              </form>
+                            )}
+
+                            {docs.length === 0 ? (
+                              <p className="text-[11px] text-slate-500">
+                                No documents linked yet.
+                              </p>
+                            ) : (
+                              <ul className="space-y-1 text-[11px] text-slate-700">
+                                {docs.map(d => (
+                                  <li
+                                    key={d.id}
+                                    className="flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <span className="font-medium">
+                                        {d.title ??
+                                          d.doc_type ??
+                                          'Document'}
+                                      </span>
+                                      {d.doc_type && (
+                                        <span className="ml-1 text-slate-500">
+                                          ({d.doc_type})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      {d.url ? (
+                                        <a
+                                          href={d.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-blue-600 underline"
+                                        >
+                                          Open
+                                        </a>
+                                      ) : (
+                                        <span className="text-slate-400">
+                                          No link
+                                        </span>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
         </div>
       )}
 
-      {/* Key documents (for all asset types) */}
+      {/* Key documents (asset-level, for all asset types) */}
       <div className="rounded border bg-white p-4 text-sm">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Key documents
+            Key documents (asset-level)
           </p>
           <button
             type="button"
@@ -1136,16 +1901,15 @@ export default function AssetDetailPage() {
           </form>
         )}
 
-        {documents.length === 0 ? (
+        {assetDocuments.length === 0 ? (
           <p className="text-xs text-slate-600">
             Use this space to link important documents such as surveys, title
-            docs, guarantees, safety certificates or manuals. For now this is
-            URL-based – in the future you&apos;ll be able to upload files
-            directly.
+            docs, guarantees, safety certificates or manuals that apply to
+            the whole asset.
           </p>
         ) : (
           <ul className="space-y-2 text-xs text-slate-700">
-            {documents.map(d => (
+            {assetDocuments.map(d => (
               <li
                 key={d.id}
                 className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-3 py-2"
