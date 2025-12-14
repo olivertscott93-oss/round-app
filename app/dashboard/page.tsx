@@ -46,10 +46,11 @@ function computeIdentity(asset: Asset | null): {
     };
   }
 
+  // If it's linked to an asset type in the catalog, treat as exact
   if (asset.asset_type_id) {
     return {
       level: 'strong',
-      label: 'Identity: Exact match',
+      label: 'Identity: Exact match via catalog',
       shortLabel: 'Exact',
       colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
@@ -71,7 +72,7 @@ function computeIdentity(asset: Asset | null): {
   if (score >= 4) {
     return {
       level: 'strong',
-      label: 'Identity: Strong match',
+      label: 'Identity: Strong match (brand + model + category + unique ID)',
       shortLabel: 'Strong',
       colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     };
@@ -80,7 +81,7 @@ function computeIdentity(asset: Asset | null): {
   if (score >= 2) {
     return {
       level: 'good',
-      label: 'Identity: Good',
+      label: 'Identity: Good (enough to compare reliably)',
       shortLabel: 'Good',
       colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
     };
@@ -89,7 +90,7 @@ function computeIdentity(asset: Asset | null): {
   if (score >= 1) {
     return {
       level: 'basic',
-      label: 'Identity: Basic',
+      label: 'Identity: Basic (some signals, but needs more detail)',
       shortLabel: 'Basic',
       colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
     };
@@ -126,10 +127,21 @@ function ColumnHeaderWithTooltip(props: { label: string; tooltip: string }) {
   );
 }
 
+function isMagicReady(asset: Asset): boolean {
+  const identity = computeIdentity(asset);
+  const hasContext =
+    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+
+  return (
+    (identity.level === 'good' || identity.level === 'strong') && hasContext
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterMagicReadyOnly, setFilterMagicReadyOnly] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -190,7 +202,7 @@ export default function DashboardPage() {
     0
   );
 
-  // Magic Import readiness stats
+  // Identity + Magic Import stats (always based on full portfolio)
   const identityStats = assets.reduce(
     (acc, asset) => {
       const identity = computeIdentity(asset);
@@ -205,23 +217,51 @@ export default function DashboardPage() {
     } as Record<IdentityLevel, number>
   );
 
-  const magicReadyCount = assets.filter(asset => {
-    const identity = computeIdentity(asset);
-    const hasContext =
-      !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
-    return (
-      (identity.level === 'good' || identity.level === 'strong') && hasContext
-    );
-  }).length;
+  const magicReadyCount = assets.filter(isMagicReady).length;
+
+  // Apply filter to visible assets
+  const visibleAssets = filterMagicReadyOnly
+    ? assets.filter(isMagicReady)
+    : assets;
 
   if (loading) return <div className="p-6">Loading…</div>;
 
   return (
     <div className="space-y-4 p-6">
       {/* Header with buttons */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Your asset portfolio</h1>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Your asset portfolio</h1>
+          {assets.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Showing{' '}
+              <span className="font-semibold">
+                {visibleAssets.length} of {assets.length}
+              </span>{' '}
+              assets
+              {filterMagicReadyOnly && ' (Magic-Ready only)'}.
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
+          {assets.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setFilterMagicReadyOnly(prev => !prev)
+              }
+              className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition ${
+                filterMagicReadyOnly
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                  : 'border-slate-200 bg-white text-slate-700'
+              }`}
+            >
+              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border border-current text-[9px]">
+                {filterMagicReadyOnly ? '✓' : ''}
+              </span>
+              Magic-Ready only
+            </button>
+          )}
           <button
             className="rounded border px-3 py-2 text-sm"
             onClick={handleLogout}
@@ -241,28 +281,34 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded border bg-slate-50 p-4 text-sm">
           <p className="mb-2 font-medium">Portfolio totals</p>
-          <div className="flex flex-col gap-1">
-            <span>
-              Total purchase value:{' '}
-              <span className="font-semibold">
-                {formatMoney(totalPurchase || 0, 'GBP')}
+          {assets.length === 0 ? (
+            <p className="text-xs text-slate-600">
+              Add your first asset to start tracking value over time.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <span>
+                Total purchase value:{' '}
+                <span className="font-semibold">
+                  {formatMoney(totalPurchase || 0, 'GBP')}
+                </span>
               </span>
-            </span>
-            <span>
-              Total current estimated value:{' '}
-              <span className="font-semibold">
-                {formatMoney(totalCurrent || 0, 'GBP')}
+              <span>
+                Total current estimated value:{' '}
+                <span className="font-semibold">
+                  {formatMoney(totalCurrent || 0, 'GBP')}
+                </span>
               </span>
-            </span>
-          </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded border bg-white p-4 text-sm">
           <p className="mb-2 font-medium">Magic Import overview</p>
           {assets.length === 0 ? (
             <p className="text-xs text-slate-600">
-              Add your first asset to see how ready your portfolio is for Magic
-              Import.
+              Add a few assets with brand, model and a purchase link or
+              receipt to see how ready your portfolio is for Magic Import.
             </p>
           ) : (
             <div className="space-y-2 text-xs text-slate-700">
@@ -281,11 +327,15 @@ export default function DashboardPage() {
                 </span>
                 <span>
                   Good:{' '}
-                  <span className="font-semibold">{identityStats.good}</span>
+                  <span className="font-semibold">
+                    {identityStats.good}
+                  </span>
                 </span>
                 <span>
                   Basic:{' '}
-                  <span className="font-semibold">{identityStats.basic}</span>
+                  <span className="font-semibold">
+                    {identityStats.basic}
+                  </span>
                 </span>
                 <span>
                   Unknown:{' '}
@@ -296,8 +346,9 @@ export default function DashboardPage() {
               </div>
               <p className="text-[11px] text-slate-500">
                 An asset is Magic-Ready when Round has a good or strong
-                identity (brand + model + category) and at least one context
-                source (product URL, notes or receipt PDF).
+                identity (brand + model + category) and at least one
+                context source (product URL, notes or receipt PDF). This is
+                what enables automated valuations in the future.
               </p>
             </div>
           )}
@@ -306,7 +357,15 @@ export default function DashboardPage() {
 
       {/* Table */}
       {assets.length === 0 ? (
-        <p>You haven&apos;t added any assets yet.</p>
+        <p className="text-sm text-slate-700">
+          You haven&apos;t added any assets yet. Click &ldquo;+ Add
+          asset&rdquo; to get started.
+        </p>
+      ) : visibleAssets.length === 0 ? (
+        <p className="text-sm text-slate-700">
+          No assets are Magic-Ready yet. Try adding brand, model and a
+          purchase link or receipt to your assets.
+        </p>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -356,15 +415,9 @@ export default function DashboardPage() {
             </tr>
           </thead>
           <tbody>
-            {assets.map(asset => {
+            {visibleAssets.map(asset => {
               const identity = computeIdentity(asset);
-              const hasContext =
-                !!asset.purchase_url ||
-                !!asset.notes_internal ||
-                !!asset.receipt_url;
-              const magicReady =
-                (identity.level === 'good' || identity.level === 'strong') &&
-                hasContext;
+              const magicReady = isMagicReady(asset);
 
               return (
                 <tr
