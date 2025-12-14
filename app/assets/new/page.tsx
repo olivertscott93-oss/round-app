@@ -1,8 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { useEffect, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 
 type Category = {
   id: string;
@@ -16,21 +16,31 @@ export default function NewAssetPage() {
   const [loadingCategories, setLoadingCategories] = useState(true);
 
   const [title, setTitle] = useState('');
-  const [categoryId, setCategoryId] = useState<string>('');
   const [brand, setBrand] = useState('');
   const [modelName, setModelName] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
-  const [purchasePrice, setPurchasePrice] = useState('');
-  const [currentEstimatedValue, setCurrentEstimatedValue] = useState('');
+  const [categoryId, setCategoryId] = useState<string>('');
+  const [purchasePrice, setPurchasePrice] = useState<string>('');
   const [purchaseUrl, setPurchaseUrl] = useState('');
-  const [emailNotes, setEmailNotes] = useState('');
+  const [notesInternal, setNotesInternal] = useState('');
+  const [currentEstimatedValue, setCurrentEstimatedValue] = useState<string>('');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Load categories on mount
   useEffect(() => {
-    const loadCategories = async () => {
+    const load = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
       const { data, error } = await supabase
         .from('categories')
         .select('id, name')
@@ -43,22 +53,13 @@ export default function NewAssetPage() {
       setLoadingCategories(false);
     };
 
-    loadCategories();
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    if (file && file.type !== 'application/pdf') {
-      alert('Please upload a PDF receipt.');
-      e.target.value = '';
-      return;
-    }
-    setReceiptFile(file);
-  };
+    load();
+  }, [router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSaving(true);
 
     const {
       data: { user },
@@ -66,342 +67,290 @@ export default function NewAssetPage() {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      setErrorMessage('You must be logged in to add an asset.');
+      setErrorMessage('You need to be logged in to add an asset.');
+      setSaving(false);
       return;
     }
 
-    if (!title.trim()) {
-      setErrorMessage('Please give your asset a title.');
-      return;
-    }
+    try {
+      const purchasePriceNumber = purchasePrice
+        ? parseFloat(purchasePrice)
+        : null;
+      const currentEstimateNumber = currentEstimatedValue
+        ? parseFloat(currentEstimatedValue)
+        : null;
 
-    const selectedCategory = categories.find(c => c.id === categoryId);
-    const categoryName = selectedCategory?.name?.toLowerCase() ?? '';
-
-    const isCar = categoryName.includes('car');
-    const isElectronics =
-      categoryName.includes('electronics') ||
-      categoryName.includes('phone') ||
-      categoryName.includes('laptop') ||
-      categoryName.includes('computer');
-    const isFurniture =
-      categoryName.includes('chair') ||
-      categoryName.includes('sofa') ||
-      categoryName.includes('desk') ||
-      categoryName.includes('furniture');
-
-    if ((isCar || isElectronics || isFurniture) && (!brand.trim() || !modelName.trim())) {
-      setErrorMessage(
-        'For cars, electronics and key furniture, please include brand and model so Round can really know what this asset is.'
-      );
-      return;
-    }
-
-    setSaving(true);
-
-    const purchasePriceNum = purchasePrice ? parseFloat(purchasePrice) : null;
-    const currentValueNum = currentEstimatedValue
-      ? parseFloat(currentEstimatedValue)
-      : null;
-
-    const { data: inserted, error: insertError } = await supabase
-      .from('assets')
-      .insert([
-        {
+      // 1) Insert the asset
+      const { data: inserted, error: insertError } = await supabase
+        .from('assets')
+        .insert({
           owner_id: user.id,
           category_id: categoryId || null,
-          title: title.trim(),
-          brand: brand.trim() || null,
-          model_name: modelName.trim() || null,
-          serial_number: serialNumber.trim() || null,
-          purchase_price: purchasePriceNum,
+          title,
+          brand: brand || null,
+          model_name: modelName || null,
+          serial_number: serialNumber || null,
+          purchase_price: purchasePriceNumber,
           purchase_currency: 'GBP',
-          current_estimated_value: currentValueNum,
+          current_estimated_value: currentEstimateNumber,
           estimate_currency: 'GBP',
-          purchase_url: purchaseUrl.trim() || null,
-          notes_internal: emailNotes.trim() || null,
+          purchase_url: purchaseUrl || null,
+          notes_internal: notesInternal || null,
           status: 'owned',
-        },
-      ])
-      .select('id')
-      .single();
+        })
+        .select()
+        .single();
 
-    if (insertError || !inserted) {
-      setSaving(false);
-      setErrorMessage('Could not save asset. Please try again.');
-      return;
-    }
+      if (insertError || !inserted) {
+        console.error(insertError);
+        throw new Error('Could not create asset.');
+      }
 
-    const assetId = inserted.id as string;
+      const assetId = inserted.id as string;
 
-    if (receiptFile) {
-      const filePath = `${user.id}/${assetId}-${Date.now()}.pdf`;
+      // 2) If there is a receipt file, upload it to Supabase Storage
+      if (receiptFile) {
+        const fileExt = receiptFile.name.split('.').pop();
+        const safeExt = fileExt ? fileExt.toLowerCase() : 'pdf';
+        const filePath = `${user.id}/${assetId}/receipt-${Date.now()}.${safeExt}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('receipts')
-        .upload(filePath, receiptFile);
-
-      if (!uploadError) {
-        const { data: publicUrlData } = supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from('receipts')
-          .getPublicUrl(filePath);
+          .upload(filePath, receiptFile, {
+            cacheControl: '3600',
+            upsert: false,
+          });
 
-        const receiptUrl = publicUrlData?.publicUrl ?? null;
+        if (uploadError) {
+          console.error(uploadError);
+          // Not fatal: asset is created, we just warn the user
+          setErrorMessage(
+            'Asset created, but the receipt could not be uploaded. You can try again from the asset page.'
+          );
+        } else {
+          // Get a public URL and save it to the asset
+          const { data: publicData } = supabase.storage
+            .from('receipts')
+            .getPublicUrl(filePath);
 
-        if (receiptUrl) {
-          await supabase
-            .from('assets')
-            .update({ receipt_url: receiptUrl })
-            .eq('id', assetId);
+          const publicUrl = publicData?.publicUrl ?? null;
+
+          if (publicUrl) {
+            const { error: updateError } = await supabase
+              .from('assets')
+              .update({
+                receipt_url: publicUrl,
+              })
+              .eq('id', assetId);
+
+            if (updateError) {
+              console.error(updateError);
+              setErrorMessage(
+                'Asset created and receipt uploaded, but could not link the receipt. You can add it manually later.'
+              );
+            }
+          }
         }
       }
+
+      // 3) Redirect to the new asset detail page
+      router.push(`/assets/${assetId}`);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message || 'Something went wrong.');
+      setSaving(false);
+      return;
     }
 
     setSaving(false);
-    router.push('/dashboard');
   };
 
-  const currentCategoryName =
-    categories.find(c => c.id === categoryId)?.name ?? '';
-
-  const hints: string[] = [];
-
-  if (currentCategoryName) {
-    const lower = currentCategoryName.toLowerCase();
-    if (lower.includes('car')) {
-      hints.push(
-        'Include the exact model and year so Round can match valuation data accurately.'
-      );
-      hints.push(
-        'Adding the registration or VIN will allow much stronger identity later.'
-      );
-    } else if (
-      lower.includes('electronics') ||
-      lower.includes('phone') ||
-      lower.includes('laptop') ||
-      lower.includes('computer')
-    ) {
-      hints.push(
-        'Include brand and model code (e.g. “iPhone 15 Pro Max, 256GB”) to match to the catalog.'
-      );
-    } else if (
-      lower.includes('chair') ||
-      lower.includes('sofa') ||
-      lower.includes('desk') ||
-      lower.includes('furniture')
-    ) {
-      hints.push(
-        'Include the exact product name (e.g. “Vitra ID Mesh”) so Round can recognise it as a design classic.'
-      );
-    }
+  if (loadingCategories) {
+    return <div className="p-6">Loading…</div>;
   }
 
   return (
-    <div className="p-6">
+    <div className="mx-auto max-w-2xl p-6">
       <h1 className="mb-4 text-2xl font-semibold">Add a new asset</h1>
+      <p className="mb-6 text-sm text-slate-600">
+        Start with the basics: give the asset a clear name, pick a category,
+        and add as much identity as you can (brand, model, serial). This helps
+        Round recognise it later for Magic Import and live valuations.
+      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-        {/* Basic identity */}
-        <div className="rounded border p-4 text-sm">
-          <p className="mb-2 font-medium">Basic details</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-600">
-                Title
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="e.g. BMW 3 Series Touring, Vitra ID Mesh chair, MacBook Pro 14”"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Category
-              </label>
-              <select
-                value={categoryId}
-                onChange={e => setCategoryId(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-              >
-                <option value="">Select category</option>
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              {loadingCategories && (
-                <p className="mt-1 text-[10px] text-slate-500">
-                  Loading categories…
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Brand
-              </label>
-              <input
-                type="text"
-                value={brand}
-                onChange={e => setBrand(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="e.g. BMW, Vitra, Apple"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Model / Product name
-              </label>
-              <input
-                type="text"
-                value={modelName}
-                onChange={e => setModelName(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="e.g. 320d Touring, ID Mesh, MacBook Pro 14”"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Serial / Registration (optional)
-              </label>
-              <input
-                type="text"
-                value={serialNumber}
-                onChange={e => setSerialNumber(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="VIN, serial number, reg plate…"
-              />
-            </div>
-          </div>
-
-          {hints.length > 0 && (
-            <div className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-700">
-              <p className="mb-1 font-medium">To help Round know this asset:</p>
-              <ul className="list-disc pl-4">
-                {hints.map((hint, idx) => (
-                  <li key={idx}>{hint}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Title */}
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">
+            Asset title <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            required
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm"
+            placeholder="e.g. 123 Example Street – Main Residence, Vitra Softshell Chair – Home Office"
+          />
         </div>
 
-        {/* Value */}
-        <div className="rounded border p-4 text-sm">
-          <p className="mb-2 font-medium">Value</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Purchase price (GBP)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={purchasePrice}
-                onChange={e => setPurchasePrice(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="e.g. 1500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Current estimated value (GBP)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={currentEstimatedValue}
-                onChange={e => setCurrentEstimatedValue(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="e.g. 900"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Context for Magic Import */}
-        <div className="rounded border p-4 text-sm bg-slate-50">
-          <p className="mb-1 font-medium">Context for Magic Import</p>
-          <p className="mb-3 text-xs text-slate-600">
-            Round will eventually use this to automatically recognise the asset
-            and pull in valuation data. For now, we simply store it so the AI
-            layer has rich context to work with.
+        {/* Category */}
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">Category</label>
+          <select
+            value={categoryId}
+            onChange={e => setCategoryId(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm bg-white"
+          >
+            <option value="">Select a category (optional)</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name ?? 'Untitled category'}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-500">
+            Use categories like &ldquo;Home / Property&rdquo;, &ldquo;Car&rdquo;,
+            &ldquo;Electronics&rdquo; etc. This helps Round group assets and
+            understand likely value behaviour.
           </p>
+        </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Product / purchase URL
-              </label>
-              <input
-                type="url"
-                value={purchaseUrl}
-                onChange={e => setPurchaseUrl(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                placeholder="Paste a product page or purchase link"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Email text / notes
-              </label>
-              <textarea
-                value={emailNotes}
-                onChange={e => setEmailNotes(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                rows={4}
-                placeholder="Paste an email confirmation, invoice text or any notes that describe this asset."
-              />
-              <p className="mt-1 text-[10px] text-slate-500">
-                Later, Magic Import can read this and map it to a catalog
-                identity and valuation.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600">
-                Receipt PDF (optional)
-              </label>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={handleFileChange}
-                className="mt-1 block w-full text-xs text-slate-700"
-              />
-              <p className="mt-1 text-[10px] text-slate-500">
-                Drag and drop or choose a PDF receipt. Round will store this in
-                your secure receipts bucket.
-              </p>
-            </div>
+        {/* Identity: brand / model / serial */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">Brand</label>
+            <input
+              type="text"
+              value={brand}
+              onChange={e => setBrand(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+              placeholder="e.g. Vitra, Apple, Audi"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">Model</label>
+            <input
+              type="text"
+              value={modelName}
+              onChange={e => setModelName(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+              placeholder="e.g. Softshell Chair, MacBook Pro, Q4 e-tron"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">Serial / ID</label>
+            <input
+              type="text"
+              value={serialNumber}
+              onChange={e => setSerialNumber(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+              placeholder="Optional unique identifier"
+            />
           </div>
         </div>
 
+        {/* Purchase & current value */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">
+              Purchase price (GBP)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={purchasePrice}
+              onChange={e => setPurchasePrice(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+              placeholder="e.g. 250000 or 950"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-sm font-medium">
+              Current estimated value (GBP)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={currentEstimatedValue}
+              onChange={e => setCurrentEstimatedValue(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+              placeholder="Optional – can be updated over time"
+            />
+          </div>
+        </div>
+
+        {/* Purchase URL & notes */}
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">Purchase URL</label>
+          <input
+            type="url"
+            value={purchaseUrl}
+            onChange={e => setPurchaseUrl(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm"
+            placeholder="Link to listing, spec page or order confirmation"
+          />
+          <p className="text-xs text-slate-500">
+            This helps Round later when scanning for live valuations or
+            replacements.
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">Notes / context</label>
+          <textarea
+            value={notesInternal}
+            onChange={e => setNotesInternal(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm"
+            rows={3}
+            placeholder="Paste any useful context, like email snippets or notes about condition, upgrades, warranty, etc."
+          />
+        </div>
+
+        {/* Receipt upload */}
+        <div className="space-y-1">
+          <label className="block text-sm font-medium">
+            Receipt or invoice (PDF)
+          </label>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={e => {
+              const file = e.target.files?.[0] ?? null;
+              setReceiptFile(file);
+            }}
+            className="block w-full text-sm"
+          />
+          <p className="text-xs text-slate-500">
+            Optional for now – in the future, Round can scan this to extract
+            purchase details automatically.
+          </p>
+        </div>
+
+        {/* Error message */}
         {errorMessage && (
-          <p className="text-xs text-red-600">{errorMessage}</p>
+          <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {errorMessage}
+          </div>
         )}
 
-        <div className="flex gap-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save asset'}
-          </button>
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-2">
           <button
             type="button"
-            className="rounded border px-3 py-2 text-sm"
+            className="text-sm text-slate-500 underline"
             onClick={() => router.push('/dashboard')}
           >
             Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save asset'}
           </button>
         </div>
       </form>
