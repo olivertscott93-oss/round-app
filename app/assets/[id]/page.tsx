@@ -71,7 +71,9 @@ function getCategoryName(asset: Asset | null) {
   return asset.category.name ?? '—';
 }
 
-function computeIdentity(asset: Asset | null): {
+function computeIdentity(
+  asset: Asset | null
+): {
   level: IdentityLevel;
   label: string;
   shortLabel: string;
@@ -146,7 +148,7 @@ function formatMoney(
   return `${cur} ${value.toFixed(0)}`;
 }
 
-function isMagicReady(asset: Asset | null): boolean {
+function isRoundReady(asset: Asset | null): boolean {
   if (!asset) return false;
   const identity = computeIdentity(asset);
   const hasContext =
@@ -248,7 +250,7 @@ export default function AssetDetailPage() {
   const [editServiceSaving, setEditServiceSaving] = useState(false);
   const [editServiceError, setEditServiceError] = useState<string | null>(null);
 
-  // Asset-level document form
+  // Asset-level documents
   const [showDocumentForm, setShowDocumentForm] = useState(false);
   const [docType, setDocType] = useState('');
   const [docTitle, setDocTitle] = useState('');
@@ -395,7 +397,7 @@ export default function AssetDetailPage() {
         setServices(svcData as Service[]);
       }
 
-      // 5) Documents (asset-level + per-upgrade + per-service)
+      // 5) Documents
       const { data: docData, error: docError } = await supabase
         .from('asset_documents')
         .select(
@@ -434,7 +436,7 @@ export default function AssetDetailPage() {
     if (!asset) return;
     setMagicLoading(true);
     setMagicMessage(
-      'Magic Import is a future feature: Round will scan receipts, emails and links to suggest live valuations and market matches for this asset.'
+      'Round-Ready assets will soon let Round scan receipts, emails and purchase links to suggest live valuations and market matches for this asset.'
     );
     setTimeout(() => {
       setMagicLoading(false);
@@ -444,7 +446,6 @@ export default function AssetDetailPage() {
   const handleUpgradeSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
-
     setUpgradeError(null);
     setUpgradeSaving(true);
 
@@ -469,8 +470,7 @@ export default function AssetDetailPage() {
         throw new Error('Could not save upgrade.');
       }
 
-      setUpgrades(prev => [data as Upgrade, ...prev]);
-
+      setUpgrades((prev) => [data as Upgrade, ...prev]);
       setUpgradeTitle('');
       setUpgradeDescription('');
       setUpgradeDate('');
@@ -505,7 +505,6 @@ export default function AssetDetailPage() {
   const handleUpgradeUpdate = async (e: FormEvent) => {
     e.preventDefault();
     if (!editingUpgradeId) return;
-
     setEditUpgradeError(null);
     setEditUpgradeSaving(true);
 
@@ -530,17 +529,13 @@ export default function AssetDetailPage() {
       }
 
       const updated = data as Upgrade;
-
-      setUpgrades(prev =>
-        prev.map(u => (u.id === updated.id ? updated : u))
+      setUpgrades((prev) =>
+        prev.map((u) => (u.id === updated.id ? updated : u))
       );
-
       cancelEditUpgrade();
     } catch (err: any) {
       console.error(err);
-      setEditUpgradeError(
-        err.message || 'Something went wrong while updating.'
-      );
+      setEditUpgradeError(err.message || 'Something went wrong while updating.');
     } finally {
       setEditUpgradeSaving(false);
     }
@@ -549,7 +544,6 @@ export default function AssetDetailPage() {
   const handleServiceSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
-
     setServiceError(null);
     setServiceSaving(true);
 
@@ -574,8 +568,7 @@ export default function AssetDetailPage() {
         throw new Error('Could not save service.');
       }
 
-      setServices(prev => [data as Service, ...prev]);
-
+      setServices((prev) => [data as Service, ...prev]);
       setServiceDate('');
       setServiceProvider('');
       setServiceDescription('');
@@ -610,7 +603,6 @@ export default function AssetDetailPage() {
   const handleServiceUpdate = async (e: FormEvent) => {
     e.preventDefault();
     if (!editingServiceId) return;
-
     setEditServiceError(null);
     setEditServiceSaving(true);
 
@@ -635,17 +627,13 @@ export default function AssetDetailPage() {
       }
 
       const updated = data as Service;
-
-      setServices(prev =>
-        prev.map(s => (s.id === updated.id ? updated : s))
+      setServices((prev) =>
+        prev.map((s) => (s.id === updated.id ? updated : s))
       );
-
       cancelEditService();
     } catch (err: any) {
       console.error(err);
-      setEditServiceError(
-        err.message || 'Something went wrong while updating.'
-      );
+      setEditServiceError(err.message || 'Something went wrong while updating.');
     } finally {
       setEditServiceSaving(false);
     }
@@ -654,7 +642,6 @@ export default function AssetDetailPage() {
   const handleDocumentSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!assetId) return;
-
     setDocError(null);
     setDocSaving(true);
 
@@ -688,8 +675,7 @@ export default function AssetDetailPage() {
       }
 
       const doc = data as Document;
-      setAssetDocuments(prev => [doc, ...prev]);
-
+      setAssetDocuments((prev) => [doc, ...prev]);
       setDocType('');
       setDocTitle('');
       setDocUrl('');
@@ -704,12 +690,12 @@ export default function AssetDetailPage() {
   };
 
   const assetLevelDocuments = assetDocuments.filter(
-    d => !d.upgrade_id && !d.service_id
+    (d) => !d.upgrade_id && !d.service_id
   );
   const docsForUpgrade = (id: string) =>
-    assetDocuments.filter(d => d.upgrade_id === id);
+    assetDocuments.filter((d) => d.upgrade_id === id);
   const docsForService = (id: string) =>
-    assetDocuments.filter(d => d.service_id === id);
+    assetDocuments.filter((d) => d.service_id === id);
 
   const handleUpgradeDocSubmit = async (
     e: FormEvent,
@@ -717,7 +703,6 @@ export default function AssetDetailPage() {
   ) => {
     e.preventDefault();
     if (!assetId) return;
-
     setUpgradeDocError(null);
     setUpgradeDocSaving(true);
 
@@ -746,8 +731,7 @@ export default function AssetDetailPage() {
         throw new Error('Could not save upgrade document.');
       }
 
-      setAssetDocuments(prev => [data as Document, ...prev]);
-
+      setAssetDocuments((prev) => [data as Document, ...prev]);
       setUpgradeDocFile(null);
       setActiveUpgradeDocId(null);
     } catch (err: any) {
@@ -766,7 +750,6 @@ export default function AssetDetailPage() {
   ) => {
     e.preventDefault();
     if (!assetId) return;
-
     setServiceDocError(null);
     setServiceDocSaving(true);
 
@@ -795,8 +778,7 @@ export default function AssetDetailPage() {
         throw new Error('Could not save service document.');
       }
 
-      setAssetDocuments(prev => [data as Document, ...prev]);
-
+      setAssetDocuments((prev) => [data as Document, ...prev]);
       setServiceDocFile(null);
       setActiveServiceDocId(null);
     } catch (err: any) {
@@ -814,67 +796,66 @@ export default function AssetDetailPage() {
   }
 
   const identity = computeIdentity(asset);
-  const magicReady = isMagicReady(asset);
+  const roundReady = isRoundReady(asset);
   const categoryName = getCategoryName(asset);
   const isHome = isHomeLikeAsset(categoryName);
-
   const upgradesTotal = upgrades.reduce(
     (sum, u) => sum + (u.cost ?? 0),
     0
   );
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-6 p-6">
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <button
+          className="text-sm text-slate-600 hover:text-slate-900"
           onClick={handleBack}
-          className="text-sm text-slate-500 underline"
         >
           ← Back to portfolio
         </button>
         <button
+          className="rounded border px-3 py-1.5 text-sm"
           onClick={handleEditAsset}
-          className="rounded border px-3 py-1 text-sm"
         >
           Edit asset
         </button>
       </div>
 
       {/* Header */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{asset.title}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {categoryName !== '—' && (
-              <>
-                <span className="font-medium">{categoryName}</span>
-                {' · '}
-              </>
-            )}
-            {asset.brand && <span>{asset.brand}</span>}
-            {asset.brand && asset.model_name && <span> · </span>}
-            {asset.model_name && <span>{asset.model_name}</span>}
-          </p>
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold">{asset.title}</h1>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          {categoryName !== '—' && (
+            <>
+              <span>{categoryName}</span>
+              <span>·</span>
+            </>
+          )}
+          {asset.brand && <span>{asset.brand}</span>}
+          {asset.brand && asset.model_name && <span>·</span>}
+          {asset.model_name && <span>{asset.model_name}</span>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${identity.colorClass}`}
+            className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 ${identity.colorClass}`}
             title={identity.label}
           >
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
             Identity: {identity.shortLabel}
           </span>
-          {magicReady && (
+
+          {roundReady && (
             <span
-              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
-              title="Magic-Ready: Round has enough identity and context to start automated valuations."
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800"
+              title="This asset is Round-Ready: Round has enough identity and context to start automated valuations."
             >
-              ✨ Magic-Ready
+              ✨ Round-Ready
             </span>
           )}
+
           {asset.status && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs capitalize text-slate-700">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] capitalize text-slate-700">
               Status: {asset.status}
             </span>
           )}
@@ -885,67 +866,86 @@ export default function AssetDetailPage() {
       <div className="grid gap-4 md:grid-cols-3">
         {/* Value card */}
         <div className="rounded border bg-slate-50 p-4 text-sm">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             Value
           </p>
-          <p className="text-xs text-slate-500">Purchase price</p>
-          <p className="text-lg font-semibold">
-            {formatMoney(asset.purchase_price, asset.purchase_currency)}
-          </p>
 
-          <p className="mt-3 text-xs text-slate-500">
-            Total upgrades invested
-          </p>
-          <p className="text-sm font-medium">
-            {formatMoney(upgradesTotal, 'GBP')}
-          </p>
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span>Purchase price</span>
+              <span className="font-medium">
+                {formatMoney(asset.purchase_price, asset.purchase_currency)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Total upgrades invested</span>
+              <span className="font-medium">
+                {formatMoney(upgradesTotal, 'GBP')}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Current estimate</span>
+              <span className="font-medium">
+                {formatMoney(
+                  asset.current_estimated_value,
+                  asset.estimate_currency
+                )}
+              </span>
+            </div>
+          </div>
 
-          <p className="mt-3 text-xs text-slate-500">Current estimate</p>
-          <p className="text-lg font-semibold">
-            {formatMoney(
-              asset.current_estimated_value,
-              asset.estimate_currency
-            )}
-          </p>
-          <p className="mt-3 text-[11px] text-slate-500">
+          <p className="mt-2 text-[11px] text-slate-500">
             Over time, Round will connect these data points to live market
             signals so you can see how your investment into this asset is
             tracking.
           </p>
         </div>
 
-        {/* Magic Import card */}
+        {/* Round-Ready / Magic Import card */}
         <div className="rounded border bg-white p-4 text-sm">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-            Magic Import
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Round-Ready & Magic Import
           </p>
+
+          <p className="mb-2 text-sm">
+            Round-Ready means Round has both:
+          </p>
+          <ul className="mb-2 ml-4 list-disc text-xs text-slate-600">
+            <li>Good or strong identity (brand/model/category)</li>
+            <li>
+              At least one context source (purchase link, notes or receipt)
+            </li>
+          </ul>
+
           <p className="mb-3 text-xs text-slate-600">
-            Magic Import will let Round scan receipts, emails and purchase
-            links to infer the exact product and pull live valuations,
-            comparables and replacement options.
+            Magic Import will use those signals to scan receipts, emails and
+            purchase links to infer the exact product and pull live valuations
+            and comparables.
           </p>
+
           <button
-            type="button"
             onClick={handleMagicImportClick}
-            disabled={!magicReady || magicLoading}
-            className={`rounded px-3 py-1.5 text-xs font-medium ${
-              magicReady
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+            disabled={magicLoading || !roundReady}
+            className={`w-full rounded px-3 py-1.5 text-sm ${
+              roundReady
+                ? 'bg-black text-white hover:bg-slate-900 disabled:bg-slate-400'
+                : 'cursor-not-allowed bg-slate-200 text-slate-500'
             }`}
           >
             {magicLoading
               ? 'Preparing Magic Import…'
-              : magicReady
+              : roundReady
               ? 'Run Magic Import (demo)'
-              : 'Magic Import needs more info'}
+              : 'Round-Ready needs more info'}
           </button>
+
           <p className="mt-2 text-[11px] text-slate-500">
-            Magic Import needs a strong identity plus at least one context
-            source (purchase URL, notes or receipt).
+            To make this asset Round-Ready, add brand/model/category and at
+            least one context source (purchase URL, notes or receipt).
           </p>
+
           {magicMessage && (
-            <p className="mt-3 rounded border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">
+            <p className="mt-2 rounded border border-dashed border-emerald-300 bg-emerald-50 p-2 text-[11px] text-emerald-900">
               {magicMessage}
             </p>
           )}
@@ -953,12 +953,13 @@ export default function AssetDetailPage() {
 
         {/* Docs / links card */}
         <div className="rounded border bg-white p-4 text-sm">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             Links & receipts
           </p>
-          <ul className="space-y-1 text-xs text-slate-700">
-            <li>
-              <span className="font-medium">Purchase URL: </span>
+
+          <div className="space-y-2 text-xs">
+            <div>
+              <span className="font-medium">Purchase URL:</span>{' '}
               {asset.purchase_url ? (
                 <a
                   href={asset.purchase_url}
@@ -971,9 +972,9 @@ export default function AssetDetailPage() {
               ) : (
                 <span className="text-slate-500">Not yet added</span>
               )}
-            </li>
-            <li>
-              <span className="font-medium">Receipt PDF: </span>
+            </div>
+            <div>
+              <span className="font-medium">Receipt PDF:</span>{' '}
               {asset.receipt_url ? (
                 <a
                   href={asset.receipt_url}
@@ -986,14 +987,15 @@ export default function AssetDetailPage() {
               ) : (
                 <span className="text-slate-500">Not yet uploaded</span>
               )}
-            </li>
-          </ul>
+            </div>
+          </div>
+
           {asset.notes_internal && (
             <div className="mt-3">
-              <p className="mb-1 text-xs font-medium text-slate-500">
+              <p className="mb-1 text-xs font-medium text-slate-700">
                 Notes / context
               </p>
-              <p className="rounded bg-slate-50 p-2 text-[11px] text-slate-700">
+              <p className="rounded border bg-slate-50 p-2 text-xs text-slate-700">
                 {asset.notes_internal}
               </p>
             </div>
@@ -1003,11 +1005,10 @@ export default function AssetDetailPage() {
 
       {/* Valuation history */}
       <div className="rounded border bg-white p-4 text-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Valuation history
-          </p>
-        </div>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Valuation history
+        </p>
+
         {valuations.length === 0 ? (
           <p className="text-xs text-slate-600">
             Once Round starts pulling live price signals, you&apos;ll see
@@ -1018,31 +1019,29 @@ export default function AssetDetailPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs">
               <thead>
-                <tr className="border-b bg-slate-50">
-                  <th className="px-2 py-1 text-left">Date</th>
-                  <th className="px-2 py-1 text-left">Source</th>
-                  <th className="px-2 py-1 text-right">Suggested</th>
-                  <th className="px-2 py-1 text-right">New range</th>
-                  <th className="px-2 py-1 text-right">Used range</th>
+                <tr className="border-b">
+                  <th className="py-1 text-left">Date</th>
+                  <th className="py-1 text-left">Source</th>
+                  <th className="py-1 text-right">Suggested</th>
+                  <th className="py-1 text-right">New range</th>
+                  <th className="py-1 text-right">Used range</th>
                 </tr>
               </thead>
               <tbody>
-                {valuations.map(v => (
+                {valuations.map((v) => (
                   <tr key={v.id} className="border-b">
-                    <td className="px-2 py-1">
+                    <td className="py-1">
                       {new Date(v.created_at).toLocaleDateString('en-GB', {
                         year: 'numeric',
                         month: 'short',
                         day: 'numeric',
                       })}
                     </td>
-                    <td className="px-2 py-1">
-                      {v.valuation_source ?? '—'}
-                    </td>
-                    <td className="px-2 py-1 text-right">
+                    <td className="py-1">{v.valuation_source ?? '—'}</td>
+                    <td className="py-1 text-right">
                       {formatMoney(v.suggested_value, v.currency)}
                     </td>
-                    <td className="px-2 py-1 text-right">
+                    <td className="py-1 text-right">
                       {v.new_price_min == null && v.new_price_max == null
                         ? '—'
                         : `${formatMoney(
@@ -1050,7 +1049,7 @@ export default function AssetDetailPage() {
                             v.currency
                           )} – ${formatMoney(v.new_price_max, v.currency)}`}
                     </td>
-                    <td className="px-2 py-1 text-right">
+                    <td className="py-1 text-right">
                       {v.used_price_min == null && v.used_price_max == null
                         ? '—'
                         : `${formatMoney(
@@ -1072,22 +1071,20 @@ export default function AssetDetailPage() {
           {/* Upgrades & improvements */}
           <div className="rounded border bg-white p-4 text-sm">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Upgrades &amp; improvements
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Upgrades & improvements
               </p>
               <button
-                type="button"
-                className="text-xs text-blue-600 underline"
+                className="rounded border px-2 py-1 text-xs"
                 onClick={() => {
-                  setShowUpgradeForm(prev => !prev);
+                  setShowUpgradeForm((prev) => !prev);
                   setUpgradeError(null);
                 }}
               >
                 {showUpgradeForm ? 'Cancel' : '+ Add upgrade'}
               </button>
             </div>
-
-            <p className="mb-2 text-[11px] text-slate-500">
+            <p className="mb-3 text-xs text-slate-600">
               Use this to log investments that upgrade or enhance the home:
               kitchens, bathrooms, flooring, rewiring, windows, extensions,
               joinery and other improvements that affect long-term value.
@@ -1096,343 +1093,314 @@ export default function AssetDetailPage() {
             {showUpgradeForm && (
               <form
                 onSubmit={handleUpgradeSubmit}
-                className="mb-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3"
+                className="mb-3 space-y-2 rounded border bg-slate-50 p-3 text-xs"
               >
-                <div className="grid gap-2 md:grid-cols-3">
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="block text-[11px] font-medium">
-                      Title
-                    </label>
-                    <input
-                      type="text"
-                      value={upgradeTitle}
-                      onChange={e => setUpgradeTitle(e.target.value)}
-                      className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. New kitchen, Loft conversion"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium">
-                      Date (approx.)
-                    </label>
-                    <input
-                      type="date"
-                      value={upgradeDate}
-                      onChange={e => setUpgradeDate(e.target.value)}
-                      className="w-full rounded border px-2 py-1 text-xs"
-                    />
-                  </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
+                    Title
+                  </label>
+                  <input
+                    value={upgradeTitle}
+                    onChange={(e) => setUpgradeTitle(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    placeholder="e.g. New kitchen, Loft conversion"
+                  />
                 </div>
-
-                <div className="grid gap-2 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium">
-                      Cost (GBP)
-                    </label>
-                    <input
-                      type="number"
-                      value={upgradeCost}
-                      onChange={e => setUpgradeCost(e.target.value)}
-                      className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. 12500"
-                    />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="block text-[11px] font-medium">
-                      Description
-                    </label>
-                    <textarea
-                      value={upgradeDescription}
-                      onChange={e =>
-                        setUpgradeDescription(e.target.value)
-                      }
-                      className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
-                      placeholder="Materials, supplier, rooms affected, rationale…"
-                    />
-                  </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
+                    Date (approx.)
+                  </label>
+                  <input
+                    type="date"
+                    value={upgradeDate}
+                    onChange={(e) => setUpgradeDate(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                  />
                 </div>
-
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
+                    Cost (GBP)
+                  </label>
+                  <input
+                    value={upgradeCost}
+                    onChange={(e) => setUpgradeCost(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    placeholder="e.g. 12500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
+                    Description
+                  </label>
+                  <textarea
+                    value={upgradeDescription}
+                    onChange={(e) =>
+                      setUpgradeDescription(e.target.value)
+                    }
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    rows={3}
+                    placeholder="What was done and why – materials, rooms, scope…"
+                  />
+                </div>
                 {upgradeError && (
-                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                  <p className="text-[11px] text-red-600">
                     {upgradeError}
-                  </div>
+                  </p>
                 )}
-
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    className="text-xs text-slate-500"
-                    onClick={() => {
-                      setShowUpgradeForm(false);
-                      setUpgradeError(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={upgradeSaving}
-                    className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                  >
-                    {upgradeSaving ? 'Saving…' : 'Save upgrade'}
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={upgradeSaving}
+                  className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:bg-slate-400"
+                >
+                  {upgradeSaving ? 'Saving…' : 'Save upgrade'}
+                </button>
               </form>
             )}
 
             {upgrades.length === 0 ? (
               <p className="text-xs text-slate-600">
-                You haven&apos;t logged any upgrades yet. Start with the
-                bigger ticket items (kitchen, bathrooms, windows, structural
-                work) so Round can tell a clearer story about total
-                investment vs value.
+                No upgrades logged yet.
               </p>
             ) : (
-              <div className="space-y-2">
-                {upgrades.map(u => {
+              <div className="space-y-3">
+                {upgrades.map((u) => {
                   const docs = docsForUpgrade(u.id);
-                  const isAddingDoc = activeUpgradeDocId === u.id;
+                  const isEditing = editingUpgradeId === u.id;
 
-                  if (editingUpgradeId === u.id) {
-                    return (
-                      <form
-                        key={u.id}
-                        onSubmit={handleUpgradeUpdate}
-                        className="space-y-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs"
-                      >
-                        <div className="grid gap-2 md:grid-cols-3">
-                          <div className="space-y-1 md:col-span-2">
-                            <label className="block text-[11px] font-medium">
+                  return (
+                    <div
+                      key={u.id}
+                      className="rounded border bg-slate-50 p-3 text-xs"
+                    >
+                      {isEditing ? (
+                        <form
+                          onSubmit={handleUpgradeUpdate}
+                          className="space-y-2"
+                        >
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium">
                               Title
                             </label>
                             <input
-                              type="text"
                               value={editUpgradeTitle}
-                              onChange={e =>
+                              onChange={(e) =>
                                 setEditUpgradeTitle(e.target.value)
                               }
                               className="w-full rounded border px-2 py-1 text-xs"
                             />
                           </div>
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Date
-                            </label>
-                            <input
-                              type="date"
-                              value={editUpgradeDate}
-                              onChange={e =>
-                                setEditUpgradeDate(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                            />
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <label className="mb-1 block text-[11px] font-medium">
+                                Date
+                              </label>
+                              <input
+                                type="date"
+                                value={editUpgradeDate}
+                                onChange={(e) =>
+                                  setEditUpgradeDate(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="mb-1 block text-[11px] font-medium">
+                                Cost (GBP)
+                              </label>
+                              <input
+                                value={editUpgradeCost}
+                                onChange={(e) =>
+                                  setEditUpgradeCost(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
                           </div>
-                        </div>
-
-                        <div className="grid gap-2 md:grid-cols-3">
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Cost (GBP)
-                            </label>
-                            <input
-                              type="number"
-                              value={editUpgradeCost}
-                              onChange={e =>
-                                setEditUpgradeCost(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1 md:col-span-2">
-                            <label className="block text-[11px] font-medium">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium">
                               Description
                             </label>
                             <textarea
                               value={editUpgradeDescription}
-                              onChange={e =>
+                              onChange={(e) =>
                                 setEditUpgradeDescription(e.target.value)
                               }
-                              className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              rows={3}
                             />
                           </div>
-                        </div>
-
-                        {editUpgradeError && (
-                          <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                            {editUpgradeError}
-                          </div>
-                        )}
-
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            className="text-xs text-slate-500"
-                            onClick={cancelEditUpgrade}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={editUpgradeSaving}
-                            className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                          >
-                            {editUpgradeSaving ? 'Saving…' : 'Save changes'}
-                          </button>
-                        </div>
-                      </form>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={u.id}
-                      className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">
-                            {u.title ?? 'Upgrade'}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {u.upgrade_date
-                              ? new Date(
-                                  u.upgrade_date
-                                ).toLocaleDateString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                })
-                              : 'Date not set'}
-                            {' · '}
-                            {formatMoney(u.cost, 'GBP')}
-                          </p>
-                          {u.description && (
-                            <p className="mt-1 text-[11px] text-slate-700">
-                              {u.description}
+                          {editUpgradeError && (
+                            <p className="text-[11px] text-red-600">
+                              {editUpgradeError}
                             </p>
                           )}
-                          {docs.length > 0 && (
-                            <div className="mt-2 text-[11px] text-slate-700">
-                              <p className="font-medium">
-                                Documents ({docs.length})
-                              </p>
-                              <ul className="mt-1 space-y-1">
-                                {docs.map(d => (
-                                  <li
-                                    key={d.id}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <span>
-                                      {d.title ?? d.doc_type ?? 'Document'}
-                                    </span>
-                                    {d.url && (
-                                      <a
-                                        href={d.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-blue-600 underline"
-                                      >
-                                        Open
-                                      </a>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <button
-                            type="button"
-                            className="text-[11px] text-blue-600 underline"
-                            onClick={() => startEditUpgrade(u)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="text-[11px] text-blue-600 underline"
-                            onClick={() => {
-                              if (activeUpgradeDocId === u.id) {
-                                setActiveUpgradeDocId(null);
-                                setUpgradeDocError(null);
-                                setUpgradeDocFile(null);
-                              } else {
-                                setActiveUpgradeDocId(u.id);
-                                setUpgradeDocError(null);
-                                setUpgradeDocFile(null);
-                              }
-                            }}
-                          >
-                            {isAddingDoc ? 'Cancel doc' : 'Add document'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {isAddingDoc && (
-                        <form
-                          onSubmit={e => handleUpgradeDocSubmit(e, u.id)}
-                          className="mt-2 space-y-2 rounded border border-slate-200 bg-white p-2"
-                        >
-                          <div
-                            className={`rounded border px-3 py-2 text-[11px] ${
-                              upgradeDocDragOver
-                                ? 'border-blue-400 bg-blue-50'
-                                : 'border-dashed border-slate-300 bg-slate-50'
-                            }`}
-                            onDragOver={e => {
-                              e.preventDefault();
-                              setUpgradeDocDragOver(true);
-                            }}
-                            onDragLeave={e => {
-                              e.preventDefault();
-                              setUpgradeDocDragOver(false);
-                            }}
-                            onDrop={e => {
-                              e.preventDefault();
-                              setUpgradeDocDragOver(false);
-                              const file = e.dataTransfer.files?.[0];
-                              if (file) {
-                                setUpgradeDocFile(file);
-                              }
-                            }}
-                          >
-                            <p className="mb-1">
-                              Drag & drop a file here, or choose from your
-                              computer.
-                            </p>
-                            <input
-                              type="file"
-                              onChange={e =>
-                                setUpgradeDocFile(
-                                  e.target.files?.[0] ?? null
-                                )
-                              }
-                              className="text-[11px]"
-                            />
-                            {upgradeDocFile && (
-                              <p className="mt-1 text-[11px] text-slate-600">
-                                Selected: {upgradeDocFile.name}
-                              </p>
-                            )}
-                          </div>
-                          {upgradeDocError && (
-                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                              {upgradeDocError}
-                            </div>
-                          )}
-                          <div className="flex justify-end">
+                          <div className="flex gap-2">
                             <button
                               type="submit"
-                              disabled={upgradeDocSaving}
-                              className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
+                              disabled={editUpgradeSaving}
+                              className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:bg-slate-400"
                             >
-                              {upgradeDocSaving
+                              {editUpgradeSaving
                                 ? 'Saving…'
-                                : 'Save document'}
+                                : 'Save changes'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditUpgrade}
+                              className="rounded border px-3 py-1.5 text-xs"
+                            >
+                              Cancel
                             </button>
                           </div>
                         </form>
+                      ) : (
+                        <>
+                          <div className="mb-1 flex items-center justify-between">
+                            <div className="font-medium">
+                              {u.title || 'Upgrade'}
+                            </div>
+                            <button
+                              className="text-[11px] text-slate-600 underline"
+                              onClick={() => startEditUpgrade(u)}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-slate-600">
+                            {u.upgrade_date && (
+                              <span>
+                                Date:{' '}
+                                {new Date(
+                                  u.upgrade_date
+                                ).toLocaleDateString('en-GB')}
+                              </span>
+                            )}
+                            {u.cost != null && (
+                              <span>
+                                Cost: {formatMoney(u.cost, u.currency)}
+                              </span>
+                            )}
+                          </div>
+                          {u.description && (
+                            <p className="mb-2 whitespace-pre-wrap text-xs text-slate-700">
+                              {u.description}
+                            </p>
+                          )}
+
+                          {/* Upgrade documents */}
+                          <div className="mt-2 border-t pt-2">
+                            <div className="mb-1 flex items-center justify-between">
+                              <span className="text-[11px] font-medium text-slate-700">
+                                Documents
+                              </span>
+                              <button
+                                className="text-[11px] text-slate-600 underline"
+                                onClick={() => {
+                                  setActiveUpgradeDocId(
+                                    activeUpgradeDocId === u.id
+                                      ? null
+                                      : u.id
+                                  );
+                                  setUpgradeDocError(null);
+                                }}
+                              >
+                                {activeUpgradeDocId === u.id
+                                  ? 'Cancel'
+                                  : 'Attach document'}
+                              </button>
+                            </div>
+                            {docs.length === 0 && (
+                              <p className="text-[11px] text-slate-500">
+                                No documents yet.
+                              </p>
+                            )}
+                            {docs.length > 0 && (
+                              <ul className="mb-2 space-y-1 text-[11px]">
+                                {docs.map((d) => (
+                                  <li key={d.id}>
+                                    <a
+                                      href={d.url || '#'}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-blue-600 underline"
+                                    >
+                                      {d.title || d.doc_type || 'Document'}
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                            {activeUpgradeDocId === u.id && (
+                              <form
+                                onSubmit={(e) =>
+                                  handleUpgradeDocSubmit(e, u.id)
+                                }
+                                className="mt-2 space-y-2 rounded border bg-white p-2 text-[11px]"
+                              >
+                                <div
+                                  className={`flex flex-col items-center justify-center rounded border border-dashed p-3 text-center ${
+                                    upgradeDocDragOver
+                                      ? 'border-slate-600 bg-slate-50'
+                                      : 'border-slate-300'
+                                  }`}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setUpgradeDocDragOver(true);
+                                  }}
+                                  onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    setUpgradeDocDragOver(false);
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    setUpgradeDocDragOver(false);
+                                    if (
+                                      e.dataTransfer.files &&
+                                      e.dataTransfer.files[0]
+                                    ) {
+                                      setUpgradeDocFile(
+                                        e.dataTransfer.files[0]
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <p className="mb-1">
+                                    Drag & drop a file here, or choose
+                                    from your computer.
+                                  </p>
+                                  <input
+                                    type="file"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) setUpgradeDocFile(file);
+                                    }}
+                                    className="text-[11px]"
+                                  />
+                                  {upgradeDocFile && (
+                                    <p className="mt-1 text-[11px] text-slate-600">
+                                      Selected: {upgradeDocFile.name}
+                                    </p>
+                                  )}
+                                </div>
+                                {upgradeDocError && (
+                                  <p className="text-[11px] text-red-600">
+                                    {upgradeDocError}
+                                  </p>
+                                )}
+                                <button
+                                  type="submit"
+                                  disabled={upgradeDocSaving}
+                                  className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:bg-slate-400"
+                                >
+                                  {upgradeDocSaving
+                                    ? 'Saving…'
+                                    : 'Save document'}
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   );
@@ -1441,367 +1409,347 @@ export default function AssetDetailPage() {
             )}
           </div>
 
-          {/* Home Service History */}
+          {/* Home service history */}
           <div className="rounded border bg-white p-4 text-sm">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Home service history
               </p>
               <button
-                type="button"
-                className="text-xs text-blue-600 underline"
+                className="rounded border px-2 py-1 text-xs"
                 onClick={() => {
-                  setShowServiceForm(prev => !prev);
+                  setShowServiceForm((prev) => !prev);
                   setServiceError(null);
                 }}
               >
                 {showServiceForm ? 'Cancel' : '+ Add service'}
               </button>
             </div>
-
-            <p className="mb-2 text-[11px] text-slate-500">
-              Log inspections and safety events: boiler services, chimney
-              sweeps, electrical checks, alarms, warranties and other
-              servicing that keeps the home safe and compliant.
+            <p className="mb-3 text-xs text-slate-600">
+              Track boiler services, chimney sweeps, electrical inspections,
+              safety checks and other work that keeps the property compliant,
+              safe and well maintained.
             </p>
 
             {showServiceForm && (
               <form
                 onSubmit={handleServiceSubmit}
-                className="mb-3 space-y-2 rounded border border-slate-200 bg-slate-50 p-3"
+                className="mb-3 space-y-2 rounded border bg-slate-50 p-3 text-xs"
               >
-                <div className="grid gap-2 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[11px] font-medium">
                       Date
                     </label>
                     <input
                       type="date"
                       value={serviceDate}
-                      onChange={e => setServiceDate(e.target.value)}
+                      onChange={(e) => setServiceDate(e.target.value)}
                       className="w-full rounded border px-2 py-1 text-xs"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[11px] font-medium">
                       Provider
                     </label>
                     <input
-                      type="text"
                       value={serviceProvider}
-                      onChange={e =>
+                      onChange={(e) =>
                         setServiceProvider(e.target.value)
                       }
                       className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. British Gas, Local sweep"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium">
-                      Cost (GBP)
-                    </label>
-                    <input
-                      type="number"
-                      value={serviceCost}
-                      onChange={e => setServiceCost(e.target.value)}
-                      className="w-full rounded border px-2 py-1 text-xs"
-                      placeholder="e.g. 120"
+                      placeholder="e.g. Boiler company, electrician"
                     />
                   </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium">
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
+                    Cost (GBP)
+                  </label>
+                  <input
+                    value={serviceCost}
+                    onChange={(e) => setServiceCost(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    placeholder="e.g. 180"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium">
                     Description
                   </label>
                   <textarea
                     value={serviceDescription}
-                    onChange={e =>
+                    onChange={(e) =>
                       setServiceDescription(e.target.value)
                     }
-                    className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
-                    placeholder="What was done, room/area, any notes for next time…"
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    rows={3}
+                    placeholder="What work was carried out? Any key notes or certification?"
                   />
                 </div>
-
                 {serviceError && (
-                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                  <p className="text-[11px] text-red-600">
                     {serviceError}
-                  </div>
+                  </p>
                 )}
-
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    className="text-xs text-slate-500"
-                    onClick={() => {
-                      setShowServiceForm(false);
-                      setServiceError(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={serviceSaving}
-                    className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                  >
-                    {serviceSaving ? 'Saving…' : 'Save service'}
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={serviceSaving}
+                  className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:bg-slate-400"
+                >
+                  {serviceSaving ? 'Saving…' : 'Save service'}
+                </button>
               </form>
             )}
 
             {services.length === 0 ? (
               <p className="text-xs text-slate-600">
-                Nothing logged yet. Start with boiler services, chimney,
-                electrical checks and any recurring safety or compliance
-                visits.
+                No services logged yet.
               </p>
             ) : (
-              <div className="space-y-2">
-                {services.map(s => {
+              <div className="space-y-3">
+                {services.map((s) => {
                   const docs = docsForService(s.id);
-                  const isAddingDoc = activeServiceDocId === s.id;
+                  const isEditing = editingServiceId === s.id;
 
-                  if (editingServiceId === s.id) {
-                    return (
-                      <form
-                        key={s.id}
-                        onSubmit={handleServiceUpdate}
-                        className="space-y-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs"
-                      >
-                        <div className="grid gap-2 md:grid-cols-3">
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Date
-                            </label>
-                            <input
-                              type="date"
-                              value={editServiceDate}
-                              onChange={e =>
-                                setEditServiceDate(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                            />
+                  return (
+                    <div
+                      key={s.id}
+                      className="rounded border bg-slate-50 p-3 text-xs"
+                    >
+                      {isEditing ? (
+                        <form
+                          onSubmit={handleServiceUpdate}
+                          className="space-y-2"
+                        >
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <label className="mb-1 block text-[11px] font-medium">
+                                Date
+                              </label>
+                              <input
+                                type="date"
+                                value={editServiceDate}
+                                onChange={(e) =>
+                                  setEditServiceDate(e.target.value)
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="mb-1 block text-[11px] font-medium">
+                                Provider
+                              </label>
+                              <input
+                                value={editServiceProvider}
+                                onChange={(e) =>
+                                  setEditServiceProvider(
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full rounded border px-2 py-1 text-xs"
+                              />
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
-                              Provider
-                            </label>
-                            <input
-                              type="text"
-                              value={editServiceProvider}
-                              onChange={e =>
-                                setEditServiceProvider(e.target.value)
-                              }
-                              className="w-full rounded border px-2 py-1 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-medium">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium">
                               Cost (GBP)
                             </label>
                             <input
-                              type="number"
                               value={editServiceCost}
-                              onChange={e =>
+                              onChange={(e) =>
                                 setEditServiceCost(e.target.value)
                               }
                               className="w-full rounded border px-2 py-1 text-xs"
                             />
                           </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-medium">
-                            Description
-                          </label>
-                          <textarea
-                            value={editServiceDescription}
-                            onChange={e =>
-                              setEditServiceDescription(e.target.value)
-                            }
-                            className="min-h-[48px] w-full rounded border px-2 py-1 text-xs"
-                          />
-                        </div>
-
-                        {editServiceError && (
-                          <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                            {editServiceError}
-                          </div>
-                        )}
-
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            className="text-xs text-slate-500"
-                            onClick={cancelEditService}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={editServiceSaving}
-                            className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                          >
-                            {editServiceSaving ? 'Saving…' : 'Save changes'}
-                          </button>
-                        </div>
-                      </form>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={s.id}
-                      className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">
-                            {s.provider ?? 'Service'}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {s.service_date
-                              ? new Date(
-                                  s.service_date
-                                ).toLocaleDateString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                })
-                              : 'Date not set'}
-                            {' · '}
-                            {formatMoney(s.cost, 'GBP')}
-                          </p>
-                          {s.description && (
-                            <p className="mt-1 text-[11px] text-slate-700">
-                              {s.description}
-                            </p>
-                          )}
-                          {docs.length > 0 && (
-                            <div className="mt-2 text-[11px] text-slate-700">
-                              <p className="font-medium">
-                                Documents ({docs.length})
-                              </p>
-                              <ul className="mt-1 space-y-1">
-                                {docs.map(d => (
-                                  <li
-                                    key={d.id}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <span>
-                                      {d.title ?? d.doc_type ?? 'Document'}
-                                    </span>
-                                    {d.url && (
-                                      <a
-                                        href={d.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-blue-600 underline"
-                                      >
-                                        Open
-                                      </a>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <button
-                            type="button"
-                            className="text-[11px] text-blue-600 underline"
-                            onClick={() => startEditService(s)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="text-[11px] text-blue-600 underline"
-                            onClick={() => {
-                              if (activeServiceDocId === s.id) {
-                                setActiveServiceDocId(null);
-                                setServiceDocError(null);
-                                setServiceDocFile(null);
-                              } else {
-                                setActiveServiceDocId(s.id);
-                                setServiceDocError(null);
-                                setServiceDocFile(null);
-                              }
-                            }}
-                          >
-                            {isAddingDoc ? 'Cancel doc' : 'Add document'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {isAddingDoc && (
-                        <form
-                          onSubmit={e => handleServiceDocSubmit(e, s.id)}
-                          className="mt-2 space-y-2 rounded border border-slate-200 bg-white p-2"
-                        >
-                          <div
-                            className={`rounded border px-3 py-2 text-[11px] ${
-                              serviceDocDragOver
-                                ? 'border-blue-400 bg-blue-50'
-                                : 'border-dashed border-slate-300 bg-slate-50'
-                            }`}
-                            onDragOver={e => {
-                              e.preventDefault();
-                              setServiceDocDragOver(true);
-                            }}
-                            onDragLeave={e => {
-                              e.preventDefault();
-                              setServiceDocDragOver(false);
-                            }}
-                            onDrop={e => {
-                              e.preventDefault();
-                              setServiceDocDragOver(false);
-                              const file = e.dataTransfer.files?.[0];
-                              if (file) {
-                                setServiceDocFile(file);
-                              }
-                            }}
-                          >
-                            <p className="mb-1">
-                              Drag & drop a file here, or choose from your
-                              computer.
-                            </p>
-                            <input
-                              type="file"
-                              onChange={e =>
-                                setServiceDocFile(
-                                  e.target.files?.[0] ?? null
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium">
+                              Description
+                            </label>
+                            <textarea
+                              value={editServiceDescription}
+                              onChange={(e) =>
+                                setEditServiceDescription(
+                                  e.target.value
                                 )
                               }
-                              className="text-[11px]"
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              rows={3}
                             />
-                            {serviceDocFile && (
-                              <p className="mt-1 text-[11px] text-slate-600">
-                                Selected: {serviceDocFile.name}
-                              </p>
-                            )}
                           </div>
-                          {serviceDocError && (
-                            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                              {serviceDocError}
-                            </div>
+                          {editServiceError && (
+                            <p className="text-[11px] text-red-600">
+                              {editServiceError}
+                            </p>
                           )}
-                          <div className="flex justify-end">
+                          <div className="flex gap-2">
                             <button
                               type="submit"
-                              disabled={serviceDocSaving}
-                              className="rounded bg-black px-3 py-1 text-[11px] font-medium text-white disabled:opacity-60"
+                              disabled={editServiceSaving}
+                              className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:bg-slate-400"
                             >
-                              {serviceDocSaving
+                              {editServiceSaving
                                 ? 'Saving…'
-                                : 'Save document'}
+                                : 'Save changes'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditService}
+                              className="rounded border px-3 py-1.5 text-xs"
+                            >
+                              Cancel
                             </button>
                           </div>
                         </form>
+                      ) : (
+                        <>
+                          <div className="mb-1 flex items-center justify-between">
+                            <div className="font-medium">
+                              {s.provider || 'Service'}
+                            </div>
+                            <button
+                              className="text-[11px] text-slate-600 underline"
+                              onClick={() => startEditService(s)}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-slate-600">
+                            {s.service_date && (
+                              <span>
+                                Date:{' '}
+                                {new Date(
+                                  s.service_date
+                                ).toLocaleDateString('en-GB')}
+                              </span>
+                            )}
+                            {s.cost != null && (
+                              <span>
+                                Cost: {formatMoney(s.cost, s.currency)}
+                              </span>
+                            )}
+                          </div>
+                          {s.description && (
+                            <p className="mb-2 whitespace-pre-wrap text-xs text-slate-700">
+                              {s.description}
+                            </p>
+                          )}
+
+                          {/* Service documents */}
+                          <div className="mt-2 border-t pt-2">
+                            <div className="mb-1 flex items-center justify-between">
+                              <span className="text-[11px] font-medium text-slate-700">
+                                Documents
+                              </span>
+                              <button
+                                className="text-[11px] text-slate-600 underline"
+                                onClick={() => {
+                                  setActiveServiceDocId(
+                                    activeServiceDocId === s.id
+                                      ? null
+                                      : s.id
+                                  );
+                                  setServiceDocError(null);
+                                }}
+                              >
+                                {activeServiceDocId === s.id
+                                  ? 'Cancel'
+                                  : 'Attach document'}
+                              </button>
+                            </div>
+                            {docs.length === 0 && (
+                              <p className="text-[11px] text-slate-500">
+                                No documents yet.
+                              </p>
+                            )}
+                            {docs.length > 0 && (
+                              <ul className="mb-2 space-y-1 text-[11px]">
+                                {docs.map((d) => (
+                                  <li key={d.id}>
+                                    <a
+                                      href={d.url || '#'}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-blue-600 underline"
+                                    >
+                                      {d.title || d.doc_type || 'Document'}
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                            {activeServiceDocId === s.id && (
+                              <form
+                                onSubmit={(e) =>
+                                  handleServiceDocSubmit(e, s.id)
+                                }
+                                className="mt-2 space-y-2 rounded border bg-white p-2 text-[11px]"
+                              >
+                                <div
+                                  className={`flex flex-col items-center justify-center rounded border border-dashed p-3 text-center ${
+                                    serviceDocDragOver
+                                      ? 'border-slate-600 bg-slate-50'
+                                      : 'border-slate-300'
+                                  }`}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setServiceDocDragOver(true);
+                                  }}
+                                  onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    setServiceDocDragOver(false);
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    setServiceDocDragOver(false);
+                                    if (
+                                      e.dataTransfer.files &&
+                                      e.dataTransfer.files[0]
+                                    ) {
+                                      setServiceDocFile(
+                                        e.dataTransfer.files[0]
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <p className="mb-1">
+                                    Drag & drop a file here, or choose
+                                    from your computer.
+                                  </p>
+                                  <input
+                                    type="file"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) setServiceDocFile(file);
+                                    }}
+                                    className="text-[11px]"
+                                  />
+                                  {serviceDocFile && (
+                                    <p className="mt-1 text-[11px] text-slate-600">
+                                      Selected: {serviceDocFile.name}
+                                    </p>
+                                  )}
+                                </div>
+                                {serviceDocError && (
+                                  <p className="text-[11px] text-red-600">
+                                    {serviceDocError}
+                                  </p>
+                                )}
+                                <button
+                                  type="submit"
+                                  disabled={serviceDocSaving}
+                                  className="rounded bg-black px-3 py-1 text-[11px] text-white disabled:bg-slate-400"
+                                >
+                                  {serviceDocSaving
+                                    ? 'Saving…'
+                                    : 'Save document'}
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   );
@@ -1812,19 +1760,17 @@ export default function AssetDetailPage() {
         </>
       )}
 
-      {/* Key documents (asset-level) */}
+      {/* Asset-level documents */}
       <div className="rounded border bg-white p-4 text-sm">
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Key documents (asset-level)
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Asset documents
           </p>
           <button
-            type="button"
-            className="text-xs text-blue-600 underline"
+            className="rounded border px-2 py-1 text-xs"
             onClick={() => {
-              setShowDocumentForm(prev => !prev);
+              setShowDocumentForm((prev) => !prev);
               setDocError(null);
-              setDocFile(null);
             }}
           >
             {showDocumentForm ? 'Cancel' : '+ Add document'}
@@ -1832,58 +1778,70 @@ export default function AssetDetailPage() {
         </div>
 
         {showDocumentForm && (
-          <form onSubmit={handleDocumentSubmit} className="mb-3 space-y-2">
-            <div className="grid gap-2 md:grid-cols-3">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium">
+          <form
+            onSubmit={handleDocumentSubmit}
+            className="mb-3 space-y-2 rounded border bg-slate-50 p-3 text-xs"
+          >
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] font-medium">
                   Type
                 </label>
                 <input
-                  type="text"
                   value={docType}
-                  onChange={e => setDocType(e.target.value)}
+                  onChange={(e) => setDocType(e.target.value)}
                   className="w-full rounded border px-2 py-1 text-xs"
-                  placeholder="e.g. Survey, Certificate, Warranty"
+                  placeholder="e.g. Survey, Warranty, Contract"
                 />
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="block text-[11px] font-medium">
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] font-medium">
                   Title
                 </label>
                 <input
-                  type="text"
                   value={docTitle}
-                  onChange={e => setDocTitle(e.target.value)}
+                  onChange={(e) => setDocTitle(e.target.value)}
                   className="w-full rounded border px-2 py-1 text-xs"
-                  placeholder="e.g. Homebuyer survey (2024)"
+                  placeholder="e.g. Building survey 2022"
                 />
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="block text-[11px] font-medium">
-                File or URL
+            <div>
+              <label className="mb-1 block text-[11px] font-medium">
+                Link (optional)
+              </label>
+              <input
+                value={docUrl}
+                onChange={(e) => setDocUrl(e.target.value)}
+                className="w-full rounded border px-2 py-1 text-xs"
+                placeholder="Paste a URL if the document already lives online"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] font-medium">
+                File upload (optional)
               </label>
               <div
-                className={`rounded border px-3 py-2 text-[11px] ${
+                className={`flex flex-col items-center justify-center rounded border border-dashed p-3 text-center ${
                   docDragOver
-                    ? 'border-blue-400 bg-blue-50'
-                    : 'border-dashed border-slate-300 bg-slate-50'
+                    ? 'border-slate-600 bg-slate-50'
+                    : 'border-slate-300'
                 }`}
-                onDragOver={e => {
+                onDragOver={(e) => {
                   e.preventDefault();
                   setDocDragOver(true);
                 }}
-                onDragLeave={e => {
+                onDragLeave={(e) => {
                   e.preventDefault();
                   setDocDragOver(false);
                 }}
-                onDrop={e => {
+                onDrop={(e) => {
                   e.preventDefault();
                   setDocDragOver(false);
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) {
-                    setDocFile(file);
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    setDocFile(e.dataTransfer.files[0]);
                   }
                 }}
               >
@@ -1892,9 +1850,10 @@ export default function AssetDetailPage() {
                 </p>
                 <input
                   type="file"
-                  onChange={e =>
-                    setDocFile(e.target.files?.[0] ?? null)
-                  }
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setDocFile(file);
+                  }}
                   className="text-[11px]"
                 />
                 {docFile && (
@@ -1903,95 +1862,43 @@ export default function AssetDetailPage() {
                   </p>
                 )}
               </div>
-              <p className="text-[10px] text-slate-500">
-                Alternatively, paste a link:
-              </p>
-              <input
-                type="url"
-                value={docUrl}
-                onChange={e => setDocUrl(e.target.value)}
-                className="w-full rounded border px-2 py-1 text-xs"
-                placeholder="https://…"
-              />
             </div>
 
             {docError && (
-              <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
-                {docError}
-              </div>
+              <p className="text-[11px] text-red-600">{docError}</p>
             )}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="text-xs text-slate-500"
-                onClick={() => {
-                  setShowDocumentForm(false);
-                  setDocError(null);
-                  setDocFile(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={docSaving}
-                className="rounded bg-black px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-              >
-                {docSaving ? 'Saving…' : 'Save document'}
-              </button>
-            </div>
+
+            <button
+              type="submit"
+              disabled={docSaving}
+              className="rounded bg-black px-3 py-1.5 text-xs text-white disabled:bg-slate-400"
+            >
+              {docSaving ? 'Saving…' : 'Save document'}
+            </button>
           </form>
         )}
 
         {assetLevelDocuments.length === 0 ? (
           <p className="text-xs text-slate-600">
-            Use this space to link important documents such as surveys, title
-            docs, guarantees, safety certificates or manuals that apply to
-            the whole asset.
+            No asset-level documents yet.
           </p>
         ) : (
-          <ul className="space-y-2 text-xs text-slate-700">
-            {assetLevelDocuments.map(d => (
-              <li
-                key={d.id}
-                className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-3 py-2"
-              >
-                <div>
-                  <p className="font-medium">
-                    {d.title ?? d.doc_type ?? 'Document'}
-                  </p>
-                  {d.doc_type && (
-                    <p className="text-[11px] text-slate-500">
-                      Type: {d.doc_type}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right text-[11px]">
-                  {d.uploaded_at && (
-                    <p className="mb-1 text-slate-500">
-                      {new Date(d.uploaded_at).toLocaleDateString(
-                        'en-GB',
-                        {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                        }
-                      )}
-                    </p>
-                  )}
-                  {d.url ? (
-                    <a
-                      href={d.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 underline"
-                    >
-                      Open
-                    </a>
-                  ) : (
-                    <span className="text-slate-500">No link</span>
-                  )}
-                </div>
+          <ul className="space-y-1 text-xs">
+            {assetLevelDocuments.map((d) => (
+              <li key={d.id}>
+                <a
+                  href={d.url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  {d.title || d.doc_type || 'Document'}
+                </a>
+                {d.uploaded_at && (
+                  <span className="ml-2 text-[11px] text-slate-500">
+                    {new Date(d.uploaded_at).toLocaleDateString('en-GB')}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
