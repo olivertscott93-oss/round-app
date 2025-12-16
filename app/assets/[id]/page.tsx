@@ -172,6 +172,62 @@ function isHomeLikeAsset(categoryName: string): boolean {
 }
 
 /**
+ * Simple placeholder valuation logic for Magic Import demo.
+ * Uses purchase price, current estimate and upgrades to create a plausible
+ * value band that can go up (especially for homes) or down.
+ */
+function computePlaceholderValuation(
+  asset: Asset,
+  upgradesTotal: number,
+  isHome: boolean
+): {
+  suggested: number;
+  newMin: number;
+  newMax: number;
+  usedMin: number;
+  usedMax: number;
+} | null {
+  const base =
+    (asset.current_estimated_value ?? asset.purchase_price ?? 0) +
+    (upgradesTotal || 0);
+
+  if (base <= 0) return null;
+
+  // Bias homes slightly upwards on average, other assets slightly downwards.
+  const uplift = isHome ? 0.05 : -0.05;
+  const jitterRange = isHome ? 0.1 : 0.2; // homes ±10%, others ±20%
+  const jitter = (Math.random() - 0.5) * jitterRange;
+  const factor = 1 + uplift + jitter;
+
+  const suggested = Math.round(base * factor);
+
+  let newMin: number;
+  let newMax: number;
+  let usedMin: number;
+  let usedMax: number;
+
+  if (isHome) {
+    newMin = Math.round(base * 1.0); // roughly what you paid
+    newMax = Math.round(base * 1.2); // up to +20%
+    usedMin = Math.round(base * 0.9);
+    usedMax = Math.round(base * 1.05);
+  } else {
+    newMin = Math.round(base * 0.85);
+    newMax = Math.round(base * 1.0);
+    usedMin = Math.round(base * 0.6);
+    usedMax = Math.round(base * 0.9);
+  }
+
+  return {
+    suggested,
+    newMin,
+    newMax,
+    usedMin,
+    usedMax,
+  };
+}
+
+/**
  * Upload a file to the "documents" bucket and return its public URL.
  */
 async function uploadDocumentToBucket(file: File, assetId: string) {
@@ -430,17 +486,6 @@ export default function AssetDetailPage() {
 
   const handleEditAsset = () => {
     router.push(`/assets/${assetId}/edit`);
-  };
-
-  const handleMagicImportClick = () => {
-    if (!asset) return;
-    setMagicLoading(true);
-    setMagicMessage(
-      'Round-Ready assets will soon let Round scan receipts, emails and purchase links to suggest live valuations and market matches for this asset.'
-    );
-    setTimeout(() => {
-      setMagicLoading(false);
-    }, 600);
   };
 
   const handleUpgradeSubmit = async (e: FormEvent) => {
@@ -803,6 +848,83 @@ export default function AssetDetailPage() {
     (sum, u) => sum + (u.cost ?? 0),
     0
   );
+
+  const handleMagicImportClick = async () => {
+    if (!asset || !roundReady) {
+      return;
+    }
+
+    setMagicLoading(true);
+    setMagicMessage(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setMagicMessage('Please log in again to run Magic Import.');
+        setMagicLoading(false);
+        router.push('/login');
+        return;
+      }
+
+      const placeholder = computePlaceholderValuation(
+        asset,
+        upgradesTotal,
+        isHome
+      );
+
+      if (!placeholder) {
+        setMagicMessage(
+          'Round needs at least a purchase price or current estimate before it can suggest a valuation.'
+        );
+        setMagicLoading(false);
+        return;
+      }
+
+      const { suggested, newMin, newMax, usedMin, usedMax } = placeholder;
+
+      const { data, error } = await supabase
+        .from('valuations')
+        .insert({
+          asset_id: asset.id,
+          requested_by: user.id,
+          valuation_source: 'Magic Import demo',
+          suggested_value: suggested,
+          currency: 'GBP',
+          new_price_min: newMin,
+          new_price_max: newMax,
+          used_price_min: usedMin,
+          used_price_max: usedMax,
+          raw_data_json: {
+            placeholder: true,
+            strategy: 'baseline+upgrades+jitter',
+          } as any,
+        } as any)
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        throw new Error('Could not create valuation.');
+      }
+
+      setValuations((prev) => [data as Valuation, ...prev]);
+
+      setMagicMessage(
+        'Magic Import (demo) has created a placeholder valuation based on your purchase price, upgrades and asset type.'
+      );
+    } catch (err: any) {
+      console.error(err);
+      setMagicMessage(
+        err.message ||
+          'Could not create a Magic Import valuation. Please try again.'
+      );
+    } finally {
+      setMagicLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -1223,7 +1345,9 @@ export default function AssetDetailPage() {
                             <textarea
                               value={editUpgradeDescription}
                               onChange={(e) =>
-                                setEditUpgradeDescription(e.target.value)
+                                setEditUpgradeDescription(
+                                  e.target.value
+                                )
                               }
                               className="w-full rounded border px-2 py-1 text-xs"
                               rows={3}
