@@ -25,6 +25,7 @@ type Asset = {
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
+type FilterMode = 'all' | 'roundReady' | 'needsInfo';
 
 function getCategoryName(asset: Asset): string {
   if (!asset.category) return '—';
@@ -109,7 +110,20 @@ function formatMoney(
   return `${cur} ${value.toFixed(0)}`;
 }
 
-type FilterMode = 'all' | 'roundReady' | 'needsInfo';
+function computeDelta(asset: Asset) {
+  if (
+    asset.purchase_price == null ||
+    asset.current_estimated_value == null ||
+    asset.purchase_price === 0
+  ) {
+    return null;
+  }
+
+  const diff = asset.current_estimated_value - asset.purchase_price;
+  const pct = (diff / asset.purchase_price) * 100;
+
+  return { diff, pct };
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -153,7 +167,6 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false });
 
       if (!error && data) {
-        // Normalise category, as Supabase nested select often returns an array
         const normalised: Asset[] = (data as any[]).map((row) => ({
           ...row,
           category: Array.isArray(row.category)
@@ -232,6 +245,23 @@ export default function DashboardPage() {
               {formatMoney(totalCurrent || 0)}
             </span>
           </span>
+          {totalPurchase > 0 && (
+            <span className="text-slate-700">
+              Overall change:{' '}
+              {(() => {
+                const diff = totalCurrent - totalPurchase;
+                const pct = (diff / totalPurchase) * 100;
+                const sign = diff > 0 ? '+' : diff < 0 ? '−' : '';
+                const arrow = diff > 0 ? '⬆️' : diff < 0 ? '⬇️' : '⟲';
+                return (
+                  <span className="font-semibold">
+                    {arrow} {sign}
+                    {Math.abs(pct).toFixed(1)}%
+                  </span>
+                );
+              })()}
+            </span>
+          )}
         </div>
       </div>
 
@@ -318,6 +348,14 @@ export default function DashboardPage() {
                   Current (£)
                 </span>
               </th>
+              <th className="py-2 text-right">
+                <span
+                  className="cursor-help underline decoration-dotted decoration-slate-400"
+                  title="Simple placeholder: difference between current estimate and purchase price (not live market data yet)."
+                >
+                  Change
+                </span>
+              </th>
               <th className="py-2 text-center">
                 <span
                   className="cursor-help underline decoration-dotted decoration-slate-400"
@@ -337,6 +375,22 @@ export default function DashboardPage() {
                 !!asset.purchase_url ||
                 !!asset.notes_internal ||
                 !!asset.receipt_url;
+              const delta = computeDelta(asset);
+
+              const diffSign =
+                delta && delta.diff !== 0
+                  ? delta.diff > 0
+                    ? '+'
+                    : '−'
+                  : '';
+              const arrow =
+                delta && delta.diff !== 0
+                  ? delta.diff > 0
+                    ? '⬆️'
+                    : '⬇️'
+                  : '⟲';
+              const diffAbs = delta ? Math.abs(delta.diff) : 0;
+              const pctAbs = delta ? Math.abs(delta.pct) : 0;
 
               return (
                 <tr
@@ -376,6 +430,30 @@ export default function DashboardPage() {
                     {formatMoney(
                       asset.current_estimated_value,
                       asset.estimate_currency
+                    )}
+                  </td>
+                  <td className="py-2 text-right">
+                    {delta ? (
+                      <span
+                        className={
+                          delta.diff > 0
+                            ? 'text-emerald-700'
+                            : delta.diff < 0
+                            ? 'text-red-700'
+                            : 'text-slate-700'
+                        }
+                      >
+                        {arrow}{' '}
+                        {diffSign}
+                        {formatMoney(diffAbs, asset.estimate_currency).replace(
+                          /^£/,
+                          ''
+                        )}{' '}
+                        ({diffSign}
+                        {pctAbs.toFixed(1)}%)
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
                   <td className="py-2 text-center text-base">
