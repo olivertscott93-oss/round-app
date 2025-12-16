@@ -225,7 +225,7 @@ export default function DashboardPage() {
         if ((asset.status ?? 'owned') !== statusFilter) return false;
       }
 
-      // Magic filter
+      // Magic/Round-Ready filter
       if (magicFilter === 'magic' && !isMagicReady(asset)) {
         return false;
       }
@@ -309,7 +309,7 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Magic-Ready summary */}
+        {/* Round-Ready summary */}
         <div className="rounded border bg-white p-4 text-sm">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
             Magic Import readiness
@@ -318,10 +318,10 @@ export default function DashboardPage() {
             <span className="font-semibold">
               {magicCounts.magicReadyCount} of {magicCounts.total}
             </span>{' '}
-            assets are <span className="font-semibold">Magic-Ready</span>.
+            assets are <span className="font-semibold">Round-Ready</span>.
           </p>
           <p className="mt-2 text-[11px] text-slate-500">
-            Magic-Ready assets have a good or strong identity (brand/model/
+            Round-Ready assets have a good or strong identity (brand/model/
             category) plus at least one context source (purchase link, notes
             or receipt) so Round can start automating valuations.
           </p>
@@ -366,7 +366,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-slate-600">
-                  Magic Import
+                  Round-Ready
                 </label>
                 <select
                   value={magicFilter}
@@ -376,7 +376,7 @@ export default function DashboardPage() {
                   className="rounded border px-2 py-1 text-xs"
                 >
                   <option value="all">All</option>
-                  <option value="magic">Magic-Ready</option>
+                  <option value="magic">Round-Ready</option>
                   <option value="needs">Needs more info</option>
                 </select>
               </div>
@@ -410,9 +410,9 @@ export default function DashboardPage() {
                 <th className="py-2 text-left">
                   <span
                     className="inline-flex items-center gap-1"
-                    title="Magic-Ready means Round has enough identity + context (links, notes or receipts) to start automated valuations."
+                    title="Round-Ready means Round has enough identity + context (links, notes or receipts) to start automated valuations."
                   >
-                    Magic Import
+                    Round-Ready
                     <span className="text-xs text-slate-400">ⓘ</span>
                   </span>
                 </th>
@@ -463,14 +463,14 @@ export default function DashboardPage() {
                       {magic ? (
                         <span
                           className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800"
-                          title="This asset is Magic-Ready: Round has enough detail and context to start automated valuations."
+                          title="This asset is Round-Ready: Round has enough detail and context to start automated valuations."
                         >
-                          ✨ Ready
+                          ✨ Round-Ready
                         </span>
                       ) : (
                         <span
                           className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
-                          title="Add brand/model/category and at least one context source (link, notes or receipt) to make this Magic-Ready."
+                          title="Add brand/model/category and at least one context source (link, notes or receipt) to make this Round-Ready."
                         >
                           Needs info
                         </span>
