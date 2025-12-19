@@ -1,8 +1,21 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  useEffect,
+  useState,
+  ChangeEvent,
+  DragEvent,
+} from 'react';
+import {
+  useParams,
+  useRouter,
+} from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+
+type Category = {
+  id: string;
+  name: string | null;
+};
 
 type Asset = {
   id: string;
@@ -21,40 +34,80 @@ type Asset = {
   notes_internal: string | null;
   city: string | null;
   country: string | null;
+  category_id: string | null;
 };
+
+function isHomeCategoryName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  const keywords = [
+    'home',
+    'house',
+    'property',
+    'flat',
+    'apartment',
+    'real estate',
+  ];
+  return keywords.some((k) => lower.includes(k));
+}
 
 export default function EditAssetPage() {
   const params = useParams();
   const router = useRouter();
   const assetId = params?.id as string;
 
-  const [asset, setAsset] = useState<Asset | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [asset, setAsset] = useState<Asset | null>(
+    null
+  );
 
-  // Form state
   const [title, setTitle] = useState('');
-  const [brand, setBrand] = useState('');
-  const [modelName, setModelName] = useState('');
-  const [serialNumber, setSerialNumber] = useState('');
-  const [status, setStatus] = useState('');
-  const [purchasePrice, setPurchasePrice] = useState('');
-  const [purchaseCurrency, setPurchaseCurrency] = useState('GBP');
-  const [purchaseDate, setPurchaseDate] = useState('');
-  const [currentEstimatedValue, setCurrentEstimatedValue] = useState('');
-  const [estimateCurrency, setEstimateCurrency] = useState('GBP');
-  const [purchaseUrl, setPurchaseUrl] = useState('');
-  const [receiptUrl, setReceiptUrl] = useState('');
-  const [notesInternal, setNotesInternal] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
 
-  useEffect(() => {
-    if (!assetId) return;
+  const [brand, setBrand] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
 
-    const load = async () => {
+  const [status, setStatus] = useState<
+    string | null
+  >(null);
+
+  const [purchasePrice, setPurchasePrice] =
+    useState('');
+  const [purchaseCurrency, setPurchaseCurrency] =
+    useState('GBP');
+  const [purchaseDate, setPurchaseDate] =
+    useState('');
+
+  const [
+    currentEstimatedValue,
+    setCurrentEstimatedValue,
+  ] = useState('');
+  const [estimateCurrency, setEstimateCurrency] =
+    useState('GBP');
+
+  const [purchaseUrl, setPurchaseUrl] =
+    useState('');
+  const [notesInternal, setNotesInternal] =
+    useState('');
+
+  const [existingReceiptUrl, setExistingReceiptUrl] =
+    useState<string | null>(null);
+  const [receiptFile, setReceiptFile] =
+    useState<File | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+  const [saving, setSaving] =
+    useState(false);
+  const [error, setError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    const loadData = async () => {
       setLoading(true);
       setError(null);
 
@@ -67,7 +120,20 @@ export default function EditAssetPage() {
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: catData, error: catError } =
+        await supabase
+          .from('categories')
+          .select('id, name')
+          .order('name');
+
+      if (!catError && catData) {
+        setCategories(catData as Category[]);
+      }
+
+      const {
+        data: assetData,
+        error: assetError,
+      } = await supabase
         .from('assets')
         .select(
           `
@@ -86,146 +152,273 @@ export default function EditAssetPage() {
           receipt_url,
           notes_internal,
           city,
-          country
+          country,
+          category_id
         `
         )
         .eq('id', assetId)
         .eq('owner_id', user.id)
         .single();
 
-      if (error || !data) {
-        console.error(error);
-        setError('Could not load asset.');
+      if (assetError || !assetData) {
+        console.error(assetError);
+        setError('Could not load this asset.');
         setLoading(false);
         return;
       }
 
-      const a = data as Asset;
+      const a = assetData as Asset;
       setAsset(a);
 
-      // hydrate form
-      setTitle(a.title ?? '');
-      setBrand(a.brand ?? '');
-      setModelName(a.model_name ?? '');
-      setSerialNumber(a.serial_number ?? '');
-      setStatus(a.status ?? '');
+      setTitle(a.title || '');
+      setCategoryId(a.category_id || '');
+      setCity(a.city || '');
+      setCountry(a.country || '');
+      setBrand(a.brand || '');
+      setModelName(a.model_name || '');
+      setSerialNumber(a.serial_number || '');
+      setStatus(a.status);
       setPurchasePrice(
-        a.purchase_price != null ? String(a.purchase_price) : ''
+        a.purchase_price != null
+          ? String(a.purchase_price)
+          : ''
       );
-      setPurchaseCurrency(a.purchase_currency ?? 'GBP');
-      setPurchaseDate(a.purchase_date ?? '');
+      setPurchaseCurrency(
+        a.purchase_currency || 'GBP'
+      );
+      setPurchaseDate(a.purchase_date || '');
       setCurrentEstimatedValue(
         a.current_estimated_value != null
           ? String(a.current_estimated_value)
           : ''
       );
-      setEstimateCurrency(a.estimate_currency ?? 'GBP');
-      setPurchaseUrl(a.purchase_url ?? '');
-      setReceiptUrl(a.receipt_url ?? '');
-      setNotesInternal(a.notes_internal ?? '');
-      setCity(a.city ?? '');
-      setCountry(a.country ?? '');
+      setEstimateCurrency(
+        a.estimate_currency ||
+          a.purchase_currency ||
+          'GBP'
+      );
+      setPurchaseUrl(a.purchase_url || '');
+      setNotesInternal(a.notes_internal || '');
+      setExistingReceiptUrl(a.receipt_url);
 
       setLoading(false);
     };
 
-    load();
+    if (assetId) {
+      loadData();
+    }
   }, [assetId, router]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const selectedCategory = categories.find(
+    (c) => c.id === categoryId
+  );
+  const isHome = isHomeCategoryName(
+    selectedCategory?.name
+  );
+
+  const handleReceiptChange = (
+    e: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setReceiptFile(file);
+    }
+  };
+
+  const handleReceiptDrop = (
+    e: DragEvent<HTMLDivElement>
+  ) => {
     e.preventDefault();
-    if (!assetId) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      setReceiptFile(file);
+    }
+  };
+
+  const handleReceiptDragOver = (
+    e: DragEvent<HTMLDivElement>
+  ) => {
+    e.preventDefault();
+  };
+
+  const handleSave = async (
+    e: React.FormEvent
+  ) => {
+    e.preventDefault();
+    if (!asset) return;
 
     setSaving(true);
     setError(null);
 
     try {
-      const purchasePriceNumber = purchasePrice
-        ? parseFloat(purchasePrice)
-        : null;
-      const currentEstimateNumber = currentEstimatedValue
-        ? parseFloat(currentEstimatedValue)
-        : null;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const { error } = await supabase
-        .from('assets')
-        .update({
-          title: title || null,
-          brand: brand || null,
-          model_name: modelName || null,
-          serial_number: serialNumber || null,
-          status: status || null,
-          purchase_price: purchasePriceNumber,
-          purchase_currency: purchaseCurrency || null,
-          purchase_date: purchaseDate || null,
-          current_estimated_value: currentEstimateNumber,
-          estimate_currency: estimateCurrency || null,
-          purchase_url: purchaseUrl || null,
-          receipt_url: receiptUrl || null,
-          notes_internal: notesInternal || null,
-          city: city || null,
-          country: country || null,
-        } as any)
-        .eq('id', assetId);
+      if (!user) {
+        router.push('/login');
+        return;
+      }
 
-      if (error) {
-        console.error(error);
+      let receiptUrl = existingReceiptUrl;
+
+      if (receiptFile) {
+        const bucket = 'receipts';
+        const safeName = receiptFile.name.replace(
+          /[^\w.\-]+/g,
+          '_'
+        );
+        const path = `${user.id}/${asset.id}/${Date.now()}-${safeName}`;
+
+        const { error: uploadError } =
+          await supabase.storage
+            .from(bucket)
+            .upload(path, receiptFile, {
+              upsert: true,
+            });
+
+        if (uploadError) {
+          console.error(uploadError);
+          setError('Could not upload receipt.');
+          setSaving(false);
+          return;
+        }
+
+        const { data: publicUrlData } =
+          supabase.storage
+            .from(bucket)
+            .getPublicUrl(path);
+
+        receiptUrl =
+          publicUrlData?.publicUrl ?? null;
+      }
+
+      const purchasePriceNumber =
+        purchasePrice.trim() === ''
+          ? null
+          : Number(purchasePrice);
+      const currentEstimatedNumber =
+        currentEstimatedValue.trim() === ''
+          ? null
+          : Number(currentEstimatedValue);
+
+      const updates: any = {
+        title: title || null,
+        category_id: categoryId || null,
+        city: city || null,
+        country: country || null,
+        purchase_price:
+          purchasePriceNumber,
+        purchase_currency:
+          purchaseCurrency || 'GBP',
+        purchase_date:
+          purchaseDate || null,
+        current_estimated_value:
+          currentEstimatedNumber,
+        estimate_currency:
+          estimateCurrency ||
+          purchaseCurrency ||
+          'GBP',
+        purchase_url:
+          purchaseUrl || null,
+        notes_internal:
+          notesInternal || null,
+        status: status || null,
+        receipt_url: receiptUrl,
+      };
+
+      if (isHome) {
+        updates.brand = null;
+        updates.model_name = null;
+        updates.serial_number = null;
+      } else {
+        updates.brand = brand || null;
+        updates.model_name =
+          modelName || null;
+        updates.serial_number =
+          serialNumber || null;
+      }
+
+      const { error: updateError } =
+        await supabase
+          .from('assets')
+          .update(updates)
+          .eq('id', asset.id)
+          .eq('owner_id', user.id);
+
+      if (updateError) {
+        console.error(updateError);
         setError('Could not save changes.');
         setSaving(false);
         return;
       }
 
-      router.push(`/assets/${assetId}`);
-    } catch (err: any) {
+      router.push(`/assets/${asset.id}`);
+    } catch (err) {
       console.error(err);
-      setError(err.message || 'Something went wrong.');
+      setError(
+        'Something went wrong while saving.'
+      );
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!assetId) return;
-
-    const confirmed = window.confirm(
-      'Are you sure you want to delete this asset? This cannot be undone.'
-    );
-    if (!confirmed) return;
-
-    setDeleting(true);
-    setError(null);
-
-    try {
-      const { error } = await supabase
-        .from('assets')
-        .delete()
-        .eq('id', assetId);
-
-      if (error) {
-        console.error(error);
-        setError('Could not delete asset.');
-        setDeleting(false);
-        return;
-      }
-
-      // After delete, go back to dashboard
-      router.push('/dashboard');
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Something went wrong while deleting.');
-      setDeleting(false);
-    }
-  };
-
   const handleCancel = () => {
-    if (assetId) {
-      router.push(`/assets/${assetId}`);
+    if (asset) {
+      router.push(`/assets/${asset.id}`);
     } else {
       router.push('/dashboard');
     }
   };
 
+  const handleDelete = async () => {
+    if (
+      !asset ||
+      !window.confirm(
+        'Delete this asset and all its data from Round? This cannot be undone.'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const { error: deleteError } =
+        await supabase
+          .from('assets')
+          .delete()
+          .eq('id', asset.id)
+          .eq('owner_id', user.id);
+
+      if (deleteError) {
+        console.error(deleteError);
+        setError('Could not delete asset.');
+        return;
+      }
+
+      router.push('/dashboard');
+    } catch (err) {
+      console.error(err);
+      setError(
+        'Something went wrong while deleting.'
+      );
+    }
+  };
+
   if (loading) {
-    return <div className="p-6">Loading asset…</div>;
+    return (
+      <div className="p-6">
+        Loading asset…
+      </div>
+    );
   }
 
   if (!asset) {
@@ -236,7 +429,9 @@ export default function EditAssetPage() {
         </p>
         <button
           className="rounded border px-3 py-1.5 text-sm"
-          onClick={() => router.push('/dashboard')}
+          onClick={() =>
+            router.push('/dashboard')
+          }
         >
           Back to portfolio
         </button>
@@ -245,249 +440,397 @@ export default function EditAssetPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Top bar */}
-      <div className="flex items-center justify-between">
-        <button
-          className="text-sm text-slate-600 hover:text-slate-900"
-          onClick={handleCancel}
-        >
-          ← Back
-        </button>
-        <h1 className="text-xl font-semibold">Edit asset</h1>
+    <div className="p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">
+          Edit asset
+        </h1>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="rounded border px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="rounded border border-red-500 px-3 py-1.5 text-sm text-red-600"
+          >
+            Delete asset
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           {error}
         </div>
       )}
 
-      {/* Edit form */}
-      <form onSubmit={handleSubmit} className="space-y-4 text-sm">
+      <form
+        onSubmit={handleSave}
+        className="space-y-6 rounded border bg-white p-4 text-sm"
+      >
+        {/* Identity */}
         <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Title
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-700">
+              {isHome
+                ? 'Address / Property name'
+                : 'Asset name / title'}
             </label>
             <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
+              type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. 73 Culver Road – Home"
+              onChange={(e) =>
+                setTitle(e.target.value)
+              }
               required
+              className="w-full rounded border px-2 py-1.5 text-sm"
             />
-          </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Status
+            <label className="mt-3 block text-xs font-medium text-slate-700">
+              Category
             </label>
             <select
+              value={categoryId}
+              onChange={(e) =>
+                setCategoryId(
+                  e.target.value
+                )
+              }
+              required
               className="w-full rounded border px-2 py-1.5 text-sm"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
             >
-              <option value="">—</option>
-              <option value="owned">Owned</option>
-              <option value="for_sale">For sale</option>
-              <option value="sold">Sold</option>
-              <option value="archived">Archived</option>
+              <option value="">
+                Select category
+              </option>
+              {categories.map((cat) => (
+                <option
+                  key={cat.id}
+                  value={cat.id}
+                >
+                  {cat.name || 'Unnamed'}
+                </option>
+              ))}
             </select>
-          </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Brand
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-              placeholder="e.g. Vitra, Apple"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Model name
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="e.g. Eames Lounge Chair, MacBook Pro"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Serial / unique ID
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={serialNumber}
-              onChange={(e) => setSerialNumber(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-[2fr,1fr] gap-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Purchase price
-              </label>
-              <input
-                className="w-full rounded border px-2 py-1.5 text-sm"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                placeholder="e.g. 350000"
-              />
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  City
+                </label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(e) =>
+                    setCity(e.target.value)
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Country
+                </label>
+                <input
+                  type="text"
+                  value={country}
+                  onChange={(e) =>
+                    setCountry(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Currency
-              </label>
-              <input
-                className="w-full rounded border px-2 py-1.5 text-sm"
-                value={purchaseCurrency}
-                onChange={(e) => setPurchaseCurrency(e.target.value)}
-                placeholder="GBP"
-              />
-            </div>
-          </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Purchase date
-            </label>
-            <input
-              type="date"
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={purchaseDate}
-              onChange={(e) => setPurchaseDate(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-[2fr,1fr] gap-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Current estimated value
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-slate-700">
+                Status
               </label>
-              <input
+              <select
+                value={status || ''}
+                onChange={(e) =>
+                  setStatus(
+                    e.target.value || null
+                  )
+                }
                 className="w-full rounded border px-2 py-1.5 text-sm"
-                value={currentEstimatedValue}
-                onChange={(e) => setCurrentEstimatedValue(e.target.value)}
-                placeholder="e.g. 425000"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Currency
-              </label>
-              <input
-                className="w-full rounded border px-2 py-1.5 text-sm"
-                value={estimateCurrency}
-                onChange={(e) => setEstimateCurrency(e.target.value)}
-                placeholder="GBP"
-              />
+              >
+                <option value="">
+                  Unknown
+                </option>
+                <option value="owned">
+                  Owned
+                </option>
+                <option value="for_sale">
+                  For sale
+                </option>
+                <option value="sold">
+                  Sold
+                </option>
+                <option value="archived">
+                  Archived
+                </option>
+              </select>
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              City
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="e.g. London"
-            />
+          {/* Brand/Model – hidden for homes */}
+          {!isHome && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-slate-700">
+                Brand & model
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] text-slate-600">
+                    Brand
+                  </label>
+                  <input
+                    type="text"
+                    value={brand}
+                    onChange={(e) =>
+                      setBrand(e.target.value)
+                    }
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-600">
+                    Model
+                  </label>
+                  <input
+                    type="text"
+                    value={modelName}
+                    onChange={(e) =>
+                      setModelName(
+                        e.target.value
+                      )
+                    }
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-600">
+                  Serial / unique ID
+                </label>
+                <input
+                  type="text"
+                  value={serialNumber}
+                  onChange={(e) =>
+                    setSerialNumber(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Value */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-700">
+              Purchase details
+            </p>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[11px] text-slate-600">
+                  Purchase price
+                </label>
+                <input
+                  type="number"
+                  value={purchasePrice}
+                  onChange={(e) =>
+                    setPurchasePrice(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div className="w-28">
+                <label className="block text-[11px] text-slate-600">
+                  Currency
+                </label>
+                <input
+                  type="text"
+                  value={purchaseCurrency}
+                  onChange={(e) =>
+                    setPurchaseCurrency(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] text-slate-600">
+                Purchase date
+              </label>
+              <input
+                type="date"
+                value={purchaseDate}
+                onChange={(e) =>
+                  setPurchaseDate(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded border px-2 py-1.5 text-sm"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Country
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="e.g. United Kingdom"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Purchase URL
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={purchaseUrl}
-              onChange={(e) => setPurchaseUrl(e.target.value)}
-              placeholder="Link to the purchase or listing (optional)"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              Receipt URL (if stored elsewhere)
-            </label>
-            <input
-              className="w-full rounded border px-2 py-1.5 text-sm"
-              value={receiptUrl}
-              onChange={(e) => setReceiptUrl(e.target.value)}
-              placeholder="If the receipt is hosted online"
-            />
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-700">
+              Current estimate
+            </p>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[11px] text-slate-600">
+                  Estimated value today
+                </label>
+                <input
+                  type="number"
+                  value={currentEstimatedValue}
+                  onChange={(e) =>
+                    setCurrentEstimatedValue(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div className="w-28">
+                <label className="block text-[11px] text-slate-600">
+                  Currency
+                </label>
+                <input
+                  type="text"
+                  value={estimateCurrency}
+                  onChange={(e) =>
+                    setEstimateCurrency(
+                      e.target.value
+                    )
+                  }
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Still manual for now – later Round will keep
+              this in sync with live market data.
+            </p>
           </div>
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-700">
-            Notes / context for Round
-          </label>
-          <textarea
-            className="w-full rounded border px-2 py-1.5 text-sm"
-            rows={4}
-            value={notesInternal}
-            onChange={(e) => setNotesInternal(e.target.value)}
-            placeholder="Paste useful context here – email text, order confirmation, anything that helps Round understand the asset."
-          />
+        {/* Context & receipt */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-700">
+              Purchase link & notes
+            </p>
+            <div>
+              <label className="block text-[11px] text-slate-600">
+                {isHome
+                  ? 'Property listing URL (Zoopla / Rightmove preferred)'
+                  : 'Purchase URL / product page'}
+              </label>
+              <input
+                type="url"
+                value={purchaseUrl}
+                onChange={(e) =>
+                  setPurchaseUrl(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded border px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-slate-600">
+                Internal notes
+              </label>
+              <textarea
+                value={notesInternal}
+                onChange={(e) =>
+                  setNotesInternal(
+                    e.target.value
+                  )
+                }
+                rows={4}
+                className="w-full rounded border px-2 py-1.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-700">
+              Receipt / key document
+            </p>
+            {existingReceiptUrl && !receiptFile && (
+              <p className="text-[11px] text-slate-600">
+                Existing receipt stored. Upload a new file
+                below to replace it.
+              </p>
+            )}
+            <div
+              onDragOver={handleReceiptDragOver}
+              onDrop={handleReceiptDrop}
+              className="flex h-32 flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 text-center text-xs text-slate-600"
+            >
+              <p>
+                Drag & drop a PDF or image
+                here,
+                <br />
+                or click to choose from your
+                computer.
+              </p>
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                className="mt-2 text-xs"
+                onChange={handleReceiptChange}
+              />
+              {receiptFile && (
+                <p className="mt-2 text-[11px] text-slate-700">
+                  New selected file:{' '}
+                  {receiptFile.name}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded bg-black px-4 py-2 text-sm text-white disabled:bg-slate-400"
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+        {/* Actions */}
+        <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={handleCancel}
-            className="rounded border px-4 py-2 text-sm"
+            className="rounded border px-3 py-1.5 text-sm"
           >
             Cancel
           </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-black px-4 py-1.5 text-sm font-medium text-white disabled:bg-slate-500"
+          >
+            {saving
+              ? 'Saving…'
+              : 'Save changes'}
+          </button>
         </div>
       </form>
-
-      {/* Delete section */}
-      <div className="mt-6 rounded border border-red-200 bg-red-50 p-4 text-sm">
-        <p className="mb-2 font-semibold text-red-800">Delete asset</p>
-        <p className="mb-3 text-xs text-red-700">
-          This will permanently remove this asset and its history from your
-          Round account. This action cannot be undone.
-        </p>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:bg-red-300"
-        >
-          {deleting ? 'Deleting…' : 'Delete asset'}
-        </button>
-      </div>
     </div>
   );
 }
