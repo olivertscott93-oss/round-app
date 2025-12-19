@@ -9,13 +9,13 @@ import React, {
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
-
 // Loosely typed rows to avoid schema mismatch issues
 type Asset = any;
 type Upgrade = any;
 type Service = any;
 type AssetDocument = any;
+
+type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
 type Valuation = {
   id: string;
@@ -189,7 +189,7 @@ export default function AssetDetailPage() {
   const [upgradeProvider, setUpgradeProvider] = useState('');
   const [savingUpgrade, setSavingUpgrade] = useState(false);
 
-  // Document attached while creating upgrade
+  // Document attached while creating an upgrade
   const [newUpgradeDocFile, setNewUpgradeDocFile] = useState<File | null>(null);
   const [newUpgradeDocNotes, setNewUpgradeDocNotes] = useState('');
 
@@ -244,7 +244,7 @@ export default function AssetDetailPage() {
       }
 
       try {
-        // Asset
+        // Main asset – use maybeSingle to avoid "Cannot coerce" error
         const { data: assetData, error: assetError } = await supabase
           .from('assets')
           .select(
@@ -271,11 +271,17 @@ export default function AssetDetailPage() {
           )
           .eq('id', assetId)
           .eq('owner_id', user.id)
-          .single();
+          .maybeSingle();
 
-        if (assetError || !assetData) {
+        if (assetError) {
           console.error(assetError);
           setError('Could not load this asset.');
+          setLoading(false);
+          return;
+        }
+
+        if (!assetData) {
+          setError('This asset could not be found. It may have been deleted.');
           setLoading(false);
           return;
         }
@@ -300,7 +306,7 @@ export default function AssetDetailPage() {
 
         if (servicesData) setServices(servicesData as Service[]);
 
-        // Documents for this asset (asset-level + upgrades + services)
+        // Documents
         const { data: docsData } = await supabase
           .from('asset_documents')
           .select('*')
@@ -338,7 +344,7 @@ export default function AssetDetailPage() {
     }
   }, [assetId, router]);
 
-  // Shared doc helpers
+  // Shared document helpers
 
   const uploadFileToBucket = async (
     file: File,
@@ -386,7 +392,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // Upgrades & improvements
+  // Upgrades & improvements – new upgrade form
 
   const handleNewUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -448,7 +454,7 @@ export default function AssetDetailPage() {
 
       const insertedUpgrade = data as Upgrade;
 
-      // If file attached at creation, upload & link
+      // Optional document attached at creation
       if (newUpgradeDocFile) {
         const fileUrl = await uploadFileToBucket(
           newUpgradeDocFile,
@@ -500,6 +506,8 @@ export default function AssetDetailPage() {
       setSavingUpgrade(false);
     }
   };
+
+  // Edit upgrade
 
   const startEditUpgrade = (u: Upgrade) => {
     setEditingUpgradeId(u.id);
@@ -1078,8 +1086,8 @@ export default function AssetDetailPage() {
             {roundReady.statusLabel}
           </span>
           <p className="text-[11px] text-slate-500">
-            Hover for hints on what else Round needs before it can do serious valuation
-            work.
+            Hover for hints on what else Round needs before it can do serious
+            valuation work.
           </p>
         </div>
 
@@ -1121,25 +1129,31 @@ export default function AssetDetailPage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Address / property</dt>
                   <dd className="text-right">
-                    {asset.title || <span className="text-slate-400">Not set</span>}
+                    {asset.title || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">City</dt>
                   <dd className="text-right">
-                    {asset.city || <span className="text-slate-400">Not set</span>}
+                    {asset.city || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Country</dt>
                   <dd className="text-right">
-                    {asset.country || <span className="text-slate-400">Not set</span>}
+                    {asset.country || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
                   </dd>
                 </div>
               </dl>
               <p className="mt-2 text-[11px] text-slate-500">
-                Your home acts as a container for upgrades, services and key documents –
-                like a digital service book.
+                Your home acts as a container for upgrades, services and key
+                documents – like a digital service book.
               </p>
             </>
           ) : (
@@ -1148,7 +1162,9 @@ export default function AssetDetailPage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Brand</dt>
                   <dd className="text-right">
-                    {asset.brand || <span className="text-slate-400">Not set</span>}
+                    {asset.brand || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -1169,8 +1185,8 @@ export default function AssetDetailPage() {
                 </div>
               </dl>
               <p className="mt-2 text-[11px] text-slate-500">
-                Brand, model and serial give Round exact matches against catalogues and
-                resale listings.
+                Brand, model and serial give Round exact matches against
+                catalogues and resale listings.
               </p>
             </>
           )}
@@ -1220,8 +1236,12 @@ export default function AssetDetailPage() {
           </dl>
           {asset.notes_internal && (
             <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
-              <p className="mb-1 font-medium text-slate-700">Notes for Round</p>
-              <p className="whitespace-pre-wrap">{asset.notes_internal}</p>
+              <p className="mb-1 font-medium text-slate-700">
+                Notes for Round
+              </p>
+              <p className="whitespace-pre-wrap">
+                {asset.notes_internal}
+              </p>
             </div>
           )}
         </div>
@@ -1235,7 +1255,8 @@ export default function AssetDetailPage() {
               Upgrades &amp; improvements
             </p>
             <p className="text-[11px] text-slate-500">
-              New kitchen, refits, major improvements – anything that adds value.
+              New kitchen, refits, major improvements – anything that adds
+              value.
             </p>
           </div>
         </div>
@@ -1272,7 +1293,10 @@ export default function AssetDetailPage() {
                           <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
                             <span>{formatDate(u.performed_date)}</span>
                             <span>
-                              {formatMoney(u.cost_amount, u.cost_currency)}
+                              {formatMoney(
+                                u.cost_amount,
+                                u.cost_currency
+                              )}
                             </span>
                             {u.provider_name && (
                               <span>by {u.provider_name}</span>
@@ -1338,7 +1362,9 @@ export default function AssetDetailPage() {
                                 </a>
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteDocument(d.id)}
+                                  onClick={() =>
+                                    handleDeleteDocument(d.id)
+                                  }
                                   className="text-[11px] text-red-600"
                                 >
                                   ✕
@@ -1382,7 +1408,7 @@ export default function AssetDetailPage() {
                             onDrop={handleUpgradeDocDrop}
                             className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
                           >
-                            Drag & drop file here (optional)
+                            Drag &amp; drop file here (optional)
                           </div>
                           <div className="flex justify-end gap-2">
                             <button
@@ -1398,7 +1424,9 @@ export default function AssetDetailPage() {
                             </button>
                             <button
                               type="submit"
-                              disabled={savingUpgradeDoc || !upgradeDocFile}
+                              disabled={
+                                savingUpgradeDoc || !upgradeDocFile
+                              }
                               className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
                             >
                               {savingUpgradeDoc ? 'Saving…' : 'Add'}
@@ -1577,7 +1605,7 @@ export default function AssetDetailPage() {
               onDrop={handleNewUpgradeDocDrop}
               className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center text-[11px]"
             >
-              Drag & drop file here (optional)
+              Drag &amp; drop file here (optional)
             </div>
             {newUpgradeDocFile && (
               <p className="text-[11px] text-slate-700">
@@ -1606,8 +1634,8 @@ export default function AssetDetailPage() {
               Home service history
             </p>
             <p className="text-[11px] text-slate-500">
-              Boiler service, chimney sweep, electrical checks – like a car service book
-              for your home.
+              Boiler service, chimney sweep, electrical checks – like a car
+              service book for your home.
             </p>
           </div>
         </div>
@@ -1640,7 +1668,10 @@ export default function AssetDetailPage() {
                       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
                         <span>{formatDate(s.performed_date)}</span>
                         <span>
-                          {formatMoney(s.cost_amount, s.cost_currency)}
+                          {formatMoney(
+                            s.cost_amount,
+                            s.cost_currency
+                          )}
                         </span>
                         {s.provider_name && (
                           <span>by {s.provider_name}</span>
@@ -1690,7 +1721,9 @@ export default function AssetDetailPage() {
                             </a>
                             <button
                               type="button"
-                              onClick={() => handleDeleteDocument(d.id)}
+                              onClick={() =>
+                                handleDeleteDocument(d.id)
+                              }
                               className="text-[11px] text-red-600"
                             >
                               ✕
@@ -1734,7 +1767,7 @@ export default function AssetDetailPage() {
                         onDrop={handleServiceDocDrop}
                         className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
                       >
-                        Drag & drop file here (optional)
+                        Drag &amp; drop file here (optional)
                       </div>
                       <div className="flex justify-end gap-2">
                         <button
@@ -1750,7 +1783,9 @@ export default function AssetDetailPage() {
                         </button>
                         <button
                           type="submit"
-                          disabled={savingServiceDoc || !serviceDocFile}
+                          disabled={
+                            savingServiceDoc || !serviceDocFile
+                          }
                           className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
                         >
                           {savingServiceDoc ? 'Saving…' : 'Add'}
@@ -1833,7 +1868,8 @@ export default function AssetDetailPage() {
           <div>
             <p className="text-sm font-semibold">Key documents</p>
             <p className="text-[11px] text-slate-500">
-              Surveys, certificates, valuations – anything that underpins value.
+              Surveys, certificates, valuations – anything that underpins
+              value.
             </p>
           </div>
         </div>
@@ -1894,7 +1930,9 @@ export default function AssetDetailPage() {
             className="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center"
           >
             <p>Drag &amp; drop PDF or image here</p>
-            <p className="text-[11px] text-slate-500">or click to choose</p>
+            <p className="text-[11px] text-slate-500">
+              or click to choose
+            </p>
             <input
               type="file"
               accept="application/pdf,image/*"
@@ -1926,8 +1964,8 @@ export default function AssetDetailPage() {
             Valuation history
           </p>
           <p className="text-[11px] text-slate-500">
-            Early experiments in how Round might track and explain value changes over
-            time.
+            Early experiments in how Round might track and explain value
+            changes over time.
           </p>
           <ul className="mt-2 space-y-2 text-sm">
             {valuations.map((v) => (
