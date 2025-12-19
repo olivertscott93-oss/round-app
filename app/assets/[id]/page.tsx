@@ -443,11 +443,17 @@ export default function AssetDetailPage() {
           provider_name: upgradeProvider || null,
         })
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not save upgrade.');
+        setError(error.message || 'Could not save upgrade.');
+        setSavingUpgrade(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not save upgrade.');
         setSavingUpgrade(false);
         return;
       }
@@ -473,13 +479,15 @@ export default function AssetDetailPage() {
               service_id: null,
             })
             .select('*')
-            .single();
+            .maybeSingle();
 
           if (docError) {
             console.error(docError);
             setError(docError.message || 'Could not save upgrade document.');
           } else if (docData) {
             setDocuments((prev) => [docData as AssetDocument, ...prev]);
+          } else {
+            setError('Could not save upgrade document.');
           }
         }
       }
@@ -569,11 +577,17 @@ export default function AssetDetailPage() {
         .eq('asset_id', asset.id)
         .eq('owner_id', user.id)
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not update upgrade.');
+        setError(error.message || 'Could not update upgrade.');
+        setSavingUpgradeEdit(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not update upgrade.');
         setSavingUpgradeEdit(false);
         return;
       }
@@ -692,11 +706,17 @@ export default function AssetDetailPage() {
           provider_name: serviceProvider || null,
         })
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not save service.');
+        setError(error.message || 'Could not save service.');
+        setSavingService(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not save service.');
         setSavingService(false);
         return;
       }
@@ -775,11 +795,17 @@ export default function AssetDetailPage() {
           service_id: null,
         })
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not save document.');
+        setError(error.message || 'Could not save document.');
+        setSavingAssetDoc(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not save document.');
         setSavingAssetDoc(false);
         return;
       }
@@ -853,11 +879,17 @@ export default function AssetDetailPage() {
           service_id: null,
         })
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not save document.');
+        setError(error.message || 'Could not save document.');
+        setSavingUpgradeDoc(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not save document.');
         setSavingUpgradeDoc(false);
         return;
       }
@@ -932,11 +964,17 @@ export default function AssetDetailPage() {
           service_id: serviceDocTargetId,
         })
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
+      if (error) {
         console.error(error);
-        setError(error?.message || 'Could not save document.');
+        setError(error.message || 'Could not save document.');
+        setSavingServiceDoc(false);
+        return;
+      }
+
+      if (!data) {
+        setError('Could not save document.');
         setSavingServiceDoc(false);
         return;
       }
