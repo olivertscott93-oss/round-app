@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-// Loosely type Supabase rows to avoid type mismatch errors
+// Loosely typed rows to avoid schema mismatch issues
 type Asset = any;
 type Upgrade = any;
 type Service = any;
@@ -30,7 +30,6 @@ function getCategoryName(asset: Asset | null): string | null {
   const cat = asset.category;
   if (!cat) return null;
 
-  // Supabase relationship can return an array or a single object
   if (Array.isArray(cat)) {
     if (!cat[0]) return null;
     return cat[0].name ?? null;
@@ -190,11 +189,11 @@ export default function AssetDetailPage() {
   const [upgradeProvider, setUpgradeProvider] = useState('');
   const [savingUpgrade, setSavingUpgrade] = useState(false);
 
-  // Document attached at the moment of creating an upgrade
+  // Document attached while creating upgrade
   const [newUpgradeDocFile, setNewUpgradeDocFile] = useState<File | null>(null);
   const [newUpgradeDocNotes, setNewUpgradeDocNotes] = useState('');
 
-  // Edit-upgrade state
+  // Edit-upgrade form
   const [editingUpgradeId, setEditingUpgradeId] = useState<string | null>(null);
   const [editUpgradeTitle, setEditUpgradeTitle] = useState('');
   const [editUpgradeDescription, setEditUpgradeDescription] = useState('');
@@ -218,14 +217,16 @@ export default function AssetDetailPage() {
   const [assetDocNotes, setAssetDocNotes] = useState('');
   const [savingAssetDoc, setSavingAssetDoc] = useState(false);
 
-  // Upgrade-level doc upload (for existing upgrades)
+  // Upgrade-level doc upload (existing upgrades)
   const [upgradeDocFile, setUpgradeDocFile] = useState<File | null>(null);
   const [upgradeDocNotes, setUpgradeDocNotes] = useState('');
+  const [upgradeDocTargetId, setUpgradeDocTargetId] = useState<string | null>(null);
   const [savingUpgradeDoc, setSavingUpgradeDoc] = useState(false);
 
-  // Service-level doc upload
+  // Service-level doc upload (existing services)
   const [serviceDocFile, setServiceDocFile] = useState<File | null>(null);
   const [serviceDocNotes, setServiceDocNotes] = useState('');
+  const [serviceDocTargetId, setServiceDocTargetId] = useState<string | null>(null);
   const [savingServiceDoc, setSavingServiceDoc] = useState(false);
 
   useEffect(() => {
@@ -243,7 +244,7 @@ export default function AssetDetailPage() {
       }
 
       try {
-        // Asset + category
+        // Asset
         const { data: assetData, error: assetError } = await supabase
           .from('assets')
           .select(
@@ -288,9 +289,7 @@ export default function AssetDetailPage() {
           .eq('asset_id', assetId)
           .order('performed_date', { ascending: false });
 
-        if (upgradesData) {
-          setUpgrades(upgradesData as Upgrade[]);
-        }
+        if (upgradesData) setUpgrades(upgradesData as Upgrade[]);
 
         // Services
         const { data: servicesData } = await supabase
@@ -299,20 +298,16 @@ export default function AssetDetailPage() {
           .eq('asset_id', assetId)
           .order('performed_date', { ascending: false });
 
-        if (servicesData) {
-          setServices(servicesData as Service[]);
-        }
+        if (servicesData) setServices(servicesData as Service[]);
 
-        // All documents for this asset (asset-level + upgrades + services)
+        // Documents for this asset (asset-level + upgrades + services)
         const { data: docsData } = await supabase
           .from('asset_documents')
           .select('*')
           .eq('asset_id', assetId)
           .order('uploaded_at', { ascending: false });
 
-        if (docsData) {
-          setDocuments(docsData as AssetDocument[]);
-        }
+        if (docsData) setDocuments(docsData as AssetDocument[]);
 
         // Valuations
         const { data: valuationsData } = await supabase
@@ -329,9 +324,7 @@ export default function AssetDetailPage() {
           .eq('asset_id', assetId)
           .order('created_at', { ascending: false });
 
-        if (valuationsData) {
-          setValuations(valuationsData as Valuation[]);
-        }
+        if (valuationsData) setValuations(valuationsData as Valuation[]);
       } catch (err) {
         console.error(err);
         setError('Something went wrong loading this asset.');
@@ -345,7 +338,7 @@ export default function AssetDetailPage() {
     }
   }, [assetId, router]);
 
-  // --- Shared doc helpers ---
+  // Shared doc helpers
 
   const uploadFileToBucket = async (
     file: File,
@@ -393,7 +386,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Upgrades & improvements ---
+  // Upgrades & improvements
 
   const handleNewUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -455,7 +448,7 @@ export default function AssetDetailPage() {
 
       const insertedUpgrade = data as Upgrade;
 
-      // If user attached a document while creating the upgrade, upload & link it
+      // If file attached at creation, upload & link
       if (newUpgradeDocFile) {
         const fileUrl = await uploadFileToBucket(
           newUpgradeDocFile,
@@ -609,7 +602,7 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // Delete related documents first (safer if you later add FK constraints)
+      // Delete related documents first
       const { error: docsError } = await supabase
         .from('asset_documents')
         .delete()
@@ -621,7 +614,6 @@ export default function AssetDetailPage() {
           docsError.message ||
             'Could not delete related documents for this upgrade.'
         );
-        // Still attempt to delete the upgrade itself
       }
 
       const { error: upgradeError } = await supabase
@@ -656,7 +648,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Services ---
+  // Services
 
   const handleAddService = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -721,7 +713,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Asset-level docs ---
+  // Asset-level docs
 
   const handleAssetDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -749,7 +741,6 @@ export default function AssetDetailPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       if (!user) {
         router.push('/login');
         return;
@@ -800,7 +791,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Upgrade-level docs (for existing upgrades) ---
+  // Upgrade-level docs (existing upgrades)
 
   const handleUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -817,12 +808,9 @@ export default function AssetDetailPage() {
     e.preventDefault();
   };
 
-  const handleAddUpgradeDocument = async (
-    e: React.FormEvent,
-    upgradeId: string
-  ) => {
+  const handleAddUpgradeDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!asset || !upgradeDocFile) return;
+    if (!asset || !upgradeDocFile || !upgradeDocTargetId) return;
 
     setSavingUpgradeDoc(true);
     setError(null);
@@ -831,7 +819,6 @@ export default function AssetDetailPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       if (!user) {
         router.push('/login');
         return;
@@ -854,7 +841,7 @@ export default function AssetDetailPage() {
           owner_id: user.id,
           file_url: fileUrl,
           notes: upgradeDocNotes || null,
-          upgrade_id: upgradeId,
+          upgrade_id: upgradeDocTargetId,
           service_id: null,
         })
         .select('*')
@@ -870,6 +857,7 @@ export default function AssetDetailPage() {
       setDocuments((prev) => [data as AssetDocument, ...prev]);
       setUpgradeDocFile(null);
       setUpgradeDocNotes('');
+      setUpgradeDocTargetId(null);
     } catch (err: any) {
       console.error(err);
       setError(
@@ -882,7 +870,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Service-level docs ---
+  // Service-level docs (existing services)
 
   const handleServiceDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -899,12 +887,9 @@ export default function AssetDetailPage() {
     e.preventDefault();
   };
 
-  const handleAddServiceDocument = async (
-    e: React.FormEvent,
-    serviceId: string
-  ) => {
+  const handleAddServiceDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!asset || !serviceDocFile) return;
+    if (!asset || !serviceDocFile || !serviceDocTargetId) return;
 
     setSavingServiceDoc(true);
     setError(null);
@@ -913,7 +898,6 @@ export default function AssetDetailPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       if (!user) {
         router.push('/login');
         return;
@@ -937,7 +921,7 @@ export default function AssetDetailPage() {
           file_url: fileUrl,
           notes: serviceDocNotes || null,
           upgrade_id: null,
-          service_id: serviceId,
+          service_id: serviceDocTargetId,
         })
         .select('*')
         .single();
@@ -952,6 +936,7 @@ export default function AssetDetailPage() {
       setDocuments((prev) => [data as AssetDocument, ...prev]);
       setServiceDocFile(null);
       setServiceDocNotes('');
+      setServiceDocTargetId(null);
     } catch (err: any) {
       console.error(err);
       setError(
@@ -964,7 +949,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Render guards ---
+  // Render guards
 
   if (loading) {
     return <div className="p-6">Loading asset…</div>;
@@ -1053,7 +1038,7 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Identity + Round readiness + values */}
+      {/* Identity / Round readiness / Values */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">Identity</p>
@@ -1072,8 +1057,7 @@ export default function AssetDetailPage() {
             {identityLabel}
           </span>
           <p className="text-[11px] text-slate-500">
-            Round needs a clear identity to compare this asset properly – think of this as
-            “does Round really know what this is?”.
+            Think of this as: does Round clearly know what this is?
           </p>
         </div>
 
@@ -1094,8 +1078,8 @@ export default function AssetDetailPage() {
             {roundReady.statusLabel}
           </span>
           <p className="text-[11px] text-slate-500">
-            Hover the pill for a hint on what Round still needs. This will eventually drive
-            live, AI-powered valuations.
+            Hover for hints on what else Round needs before it can do serious valuation
+            work.
           </p>
         </div>
 
@@ -1119,8 +1103,7 @@ export default function AssetDetailPage() {
             </span>
           </p>
           <p className="text-[11px] text-slate-500">
-            For now this is manual. In the full Round vision, this will be updated
-            automatically in the background.
+            Manual for now; future Round will keep this live in the background.
           </p>
         </div>
       </div>
@@ -1155,7 +1138,7 @@ export default function AssetDetailPage() {
                 </div>
               </dl>
               <p className="mt-2 text-[11px] text-slate-500">
-                Your home is treated as a container for upgrades, services and documents –
+                Your home acts as a container for upgrades, services and key documents –
                 like a digital service book.
               </p>
             </>
@@ -1186,7 +1169,7 @@ export default function AssetDetailPage() {
                 </div>
               </dl>
               <p className="mt-2 text-[11px] text-slate-500">
-                Brand, model and serial give Round an exact match against catalogues and
+                Brand, model and serial give Round exact matches against catalogues and
                 resale listings.
               </p>
             </>
@@ -1246,14 +1229,13 @@ export default function AssetDetailPage() {
 
       {/* Upgrades & Improvements */}
       <div className="space-y-3 rounded border bg-white p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold">
               Upgrades &amp; improvements
             </p>
             <p className="text-[11px] text-slate-500">
-              Track investments you&apos;ve made into this asset – new kitchen, refit,
-              major upgrades.
+              New kitchen, refits, major improvements – anything that adds value.
             </p>
           </div>
         </div>
@@ -1266,265 +1248,247 @@ export default function AssetDetailPage() {
           <div className="space-y-2 text-sm">
             {upgrades.map((u: Upgrade) => {
               const docs = upgradeDocsById[u.id] || [];
+              const isEditing = editingUpgradeId === u.id;
+              const showDocForm = upgradeDocTargetId === u.id;
 
               return (
                 <div
                   key={u.id}
                   className="space-y-2 rounded border bg-slate-50 p-3"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">
-                        {u.title || 'Upgrade'}
-                      </p>
-                      {u.description && (
-                        <p className="text-xs text-slate-600">
-                          {u.description}
-                        </p>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                        <span>Date: {formatDate(u.performed_date)}</span>
-                        <span>
-                          Cost:{' '}
-                          {formatMoney(u.cost_amount, u.cost_currency)}
-                        </span>
-                        {u.provider_name && (
-                          <span>Provider: {u.provider_name}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 text-[11px]">
-                      <button
-                        type="button"
-                        className="text-sky-700 underline"
-                        onClick={() => startEditUpgrade(u)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="text-red-600 underline"
-                        onClick={() => handleDeleteUpgrade(u.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Documents for this upgrade */}
-                  <div className="mt-2 space-y-1 text-xs">
-                    <p className="font-medium text-slate-700">
-                      Documents
-                    </p>
-                    {docs.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">
-                        No documents attached yet.
-                      </p>
-                    ) : (
-                      <ul className="space-y-1">
-                        {docs.map((d: AssetDocument) => (
-                          <li
-                            key={d.id}
-                            className="flex items-center justify-between rounded border bg-white px-2 py-1"
+                  {/* Read view */}
+                  {!isEditing && (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {u.title || 'Upgrade'}
+                          </p>
+                          {u.description && (
+                            <p className="text-xs text-slate-600">
+                              {u.description}
+                            </p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                            <span>{formatDate(u.performed_date)}</span>
+                            <span>
+                              {formatMoney(u.cost_amount, u.cost_currency)}
+                            </span>
+                            {u.provider_name && (
+                              <span>by {u.provider_name}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 text-[11px]">
+                          <button
+                            type="button"
+                            className="text-sky-700 underline"
+                            onClick={() => startEditUpgrade(u)}
                           >
-                            <div>
-                              <p className="text-xs font-medium">
-                                {d.notes || 'Document'}
-                              </p>
-                              <p className="text-[10px] text-slate-500">
-                                Uploaded: {formatDate(d.uploaded_at)}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {d.file_url && (
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="text-red-600 underline"
+                            onClick={() => handleDeleteUpgrade(u.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Documents list */}
+                      <div className="mt-1 space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-slate-700">
+                            Documents
+                          </p>
+                          <button
+                            type="button"
+                            className="text-[11px] text-sky-700 underline"
+                            onClick={() =>
+                              setUpgradeDocTargetId(
+                                showDocForm ? null : u.id
+                              )
+                            }
+                          >
+                            {showDocForm ? 'Cancel' : 'Attach document'}
+                          </button>
+                        </div>
+
+                        {docs.length === 0 ? (
+                          <p className="text-[11px] text-slate-500">
+                            No documents yet.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {docs.map((d: AssetDocument) => (
+                              <div
+                                key={d.id}
+                                className="flex items-center gap-2 rounded-full border bg-white px-2 py-1"
+                              >
+                                <span className="text-[11px]">📄</span>
                                 <a
                                   href={d.file_url}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="text-[11px] text-sky-700 underline"
+                                  className="max-w-[160px] truncate text-[11px] text-sky-700 underline"
                                 >
-                                  Open
+                                  {d.notes || 'Document'}
                                 </a>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteDocument(d.id)}
-                                className="text-[11px] text-red-600"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteDocument(d.id)}
+                                  className="text-[11px] text-red-600"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
 
-                  {/* Add document to this existing upgrade */}
-                  <form
-                    onSubmit={(e) => handleAddUpgradeDocument(e, u.id)}
-                    className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
-                  >
-                    <p className="font-medium text-slate-700">
-                      Add document to this upgrade
-                    </p>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-slate-600">
-                        Label / notes
-                      </label>
-                      <input
-                        type="text"
-                        value={upgradeDocNotes}
-                        onChange={(e) =>
-                          setUpgradeDocNotes(e.target.value)
-                        }
-                        placeholder="e.g. Invoice, completion certificate"
-                        className="w-full rounded border px-2 py-1.5 text-[11px]"
-                      />
-                    </div>
-
-                    <div
-                      onDragOver={handleUpgradeDocDragOver}
-                      onDrop={handleUpgradeDocDrop}
-                      className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center"
-                    >
-                      <p>
-                        Drag &amp; drop a file here,
-                        <br />
-                        or click to choose from your computer.
-                      </p>
-                      <input
-                        type="file"
-                        accept="*/*"
-                        className="mt-1 text-[11px]"
-                        onChange={handleUpgradeDocFileChange}
-                      />
-                      {upgradeDocFile && (
-                        <p className="mt-1 text-[11px] text-slate-700">
-                          Selected: {upgradeDocFile.name}
-                        </p>
+                      {/* Compact attach-doc form */}
+                      {showDocForm && (
+                        <form
+                          onSubmit={handleAddUpgradeDocument}
+                          className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
+                        >
+                          <div className="flex flex-col gap-2 md:flex-row">
+                            <input
+                              type="text"
+                              value={upgradeDocNotes}
+                              onChange={(e) =>
+                                setUpgradeDocNotes(e.target.value)
+                              }
+                              placeholder="Label (invoice, completion cert...)"
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                            <input
+                              type="file"
+                              accept="application/pdf,image/*"
+                              onChange={handleUpgradeDocFileChange}
+                              className="text-xs"
+                            />
+                          </div>
+                          {upgradeDocFile && (
+                            <p className="text-[11px] text-slate-700">
+                              Selected: {upgradeDocFile.name}
+                            </p>
+                          )}
+                          <div
+                            onDragOver={handleUpgradeDocDragOver}
+                            onDrop={handleUpgradeDocDrop}
+                            className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
+                          >
+                            Drag & drop file here (optional)
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="rounded border px-3 py-1.5"
+                              onClick={() => {
+                                setUpgradeDocTargetId(null);
+                                setUpgradeDocFile(null);
+                                setUpgradeDocNotes('');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={savingUpgradeDoc || !upgradeDocFile}
+                              className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
+                            >
+                              {savingUpgradeDoc ? 'Saving…' : 'Add'}
+                            </button>
+                          </div>
+                        </form>
                       )}
-                    </div>
+                    </>
+                  )}
 
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        disabled={savingUpgradeDoc || !upgradeDocFile}
-                        className="mt-1 rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
-                      >
-                        {savingUpgradeDoc ? 'Saving…' : 'Add document'}
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Inline edit form for this upgrade */}
-                  {editingUpgradeId === u.id && (
+                  {/* Inline edit form */}
+                  {isEditing && (
                     <form
-                      onSubmit={(e) =>
-                        handleUpdateUpgrade(e, u.id)
-                      }
-                      className="mt-3 space-y-2 rounded border border-slate-300 bg-white p-2 text-[11px]"
+                      onSubmit={(e) => handleUpdateUpgrade(e, u.id)}
+                      className="space-y-2 rounded border border-slate-300 bg-white p-2 text-[11px]"
                     >
                       <p className="font-medium text-slate-700">
                         Edit upgrade
                       </p>
                       <div className="grid gap-2 md:grid-cols-2">
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-600">
-                            Title
-                          </label>
-                          <input
-                            type="text"
-                            value={editUpgradeTitle}
-                            onChange={(e) =>
-                              setEditUpgradeTitle(e.target.value)
-                            }
-                            required
-                            className="w-full rounded border px-2 py-1.5 text-[11px]"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-600">
-                            Provider
-                          </label>
-                          <input
-                            type="text"
-                            value={editUpgradeProvider}
-                            onChange={(e) =>
-                              setEditUpgradeProvider(e.target.value)
-                            }
-                            className="w-full rounded border px-2 py-1.5 text-[11px]"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-3">
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-600">
-                            Date
-                          </label>
-                          <input
-                            type="date"
-                            value={editUpgradeDate}
-                            onChange={(e) =>
-                              setEditUpgradeDate(e.target.value)
-                            }
-                            className="w-full rounded border px-2 py-1.5 text-[11px]"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-600">
-                            Cost
-                          </label>
-                          <input
-                            type="number"
-                            value={editUpgradeCost}
-                            onChange={(e) =>
-                              setEditUpgradeCost(e.target.value)
-                            }
-                            className="w-full rounded border px-2 py-1.5 text-[11px]"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-[11px] text-slate-600">
-                            Currency
-                          </label>
-                          <input
-                            type="text"
-                            value={editUpgradeCurrency}
-                            onChange={(e) =>
-                              setEditUpgradeCurrency(e.target.value)
-                            }
-                            className="w-full rounded border px-2 py-1.5 text-[11px]"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[11px] text-slate-600">
-                          Description
-                        </label>
-                        <textarea
-                          value={editUpgradeDescription}
+                        <input
+                          type="text"
+                          value={editUpgradeTitle}
                           onChange={(e) =>
-                            setEditUpgradeDescription(e.target.value)
+                            setEditUpgradeTitle(e.target.value)
                           }
-                          rows={2}
-                          className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          required
+                          placeholder="Title"
+                          className="w-full rounded border px-2 py-1.5"
+                        />
+                        <input
+                          type="text"
+                          value={editUpgradeProvider}
+                          onChange={(e) =>
+                            setEditUpgradeProvider(e.target.value)
+                          }
+                          placeholder="Provider"
+                          className="w-full rounded border px-2 py-1.5"
                         />
                       </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <input
+                          type="date"
+                          value={editUpgradeDate}
+                          onChange={(e) =>
+                            setEditUpgradeDate(e.target.value)
+                          }
+                          className="w-full rounded border px-2 py-1.5"
+                        />
+                        <input
+                          type="number"
+                          value={editUpgradeCost}
+                          onChange={(e) =>
+                            setEditUpgradeCost(e.target.value)
+                          }
+                          placeholder="Cost"
+                          className="w-full rounded border px-2 py-1.5"
+                        />
+                        <input
+                          type="text"
+                          value={editUpgradeCurrency}
+                          onChange={(e) =>
+                            setEditUpgradeCurrency(e.target.value)
+                          }
+                          className="w-full rounded border px-2 py-1.5"
+                        />
+                      </div>
+                      <textarea
+                        value={editUpgradeDescription}
+                        onChange={(e) =>
+                          setEditUpgradeDescription(e.target.value)
+                        }
+                        rows={2}
+                        placeholder="Description"
+                        className="w-full rounded border px-2 py-1.5"
+                      />
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           onClick={cancelEditUpgrade}
-                          className="rounded border px-3 py-1.5 text-[11px]"
+                          className="rounded border px-3 py-1.5"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
                           disabled={savingUpgradeEdit}
-                          className="rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+                          className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
                         >
-                          {savingUpgradeEdit ? 'Saving…' : 'Save changes'}
+                          {savingUpgradeEdit ? 'Saving…' : 'Save'}
                         </button>
                       </div>
                     </form>
@@ -1542,123 +1506,84 @@ export default function AssetDetailPage() {
         >
           <p className="font-medium text-slate-700">Add an upgrade</p>
           <div className="grid gap-2 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Title
-              </label>
-              <input
-                type="text"
-                value={upgradeTitle}
-                onChange={(e) => setUpgradeTitle(e.target.value)}
-                required
-                placeholder={
-                  isHome
-                    ? 'e.g. New kitchen, Corston switches'
-                    : 'e.g. Refurbished upholstery'
-                }
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Provider
-              </label>
-              <input
-                type="text"
-                value={upgradeProvider}
-                onChange={(e) => setUpgradeProvider(e.target.value)}
-                placeholder="e.g. Corston, local builder"
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-          <div className="grid gap-2 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Date
-              </label>
-              <input
-                type="date"
-                value={upgradeDate}
-                onChange={(e) => setUpgradeDate(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Cost
-              </label>
-              <input
-                type="number"
-                value={upgradeCost}
-                onChange={(e) => setUpgradeCost(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Currency
-              </label>
-              <input
-                type="text"
-                value={upgradeCurrency}
-                onChange={(e) => setUpgradeCurrency(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-600">
-              Description
-            </label>
-            <textarea
-              value={upgradeDescription}
-              onChange={(e) => setUpgradeDescription(e.target.value)}
-              rows={2}
-              placeholder="Scope of the upgrade, key details, etc."
-              className="w-full rounded border px-2 py-1.5 text-xs"
+            <input
+              type="text"
+              value={upgradeTitle}
+              onChange={(e) => setUpgradeTitle(e.target.value)}
+              required
+              placeholder={
+                isHome
+                  ? 'e.g. New kitchen, Corston switches'
+                  : 'e.g. Reupholstery'
+              }
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="text"
+              value={upgradeProvider}
+              onChange={(e) => setUpgradeProvider(e.target.value)}
+              placeholder="Provider (optional)"
+              className="w-full rounded border px-2 py-1.5"
             />
           </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            <input
+              type="date"
+              value={upgradeDate}
+              onChange={(e) => setUpgradeDate(e.target.value)}
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="number"
+              value={upgradeCost}
+              onChange={(e) => setUpgradeCost(e.target.value)}
+              placeholder="Cost"
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="text"
+              value={upgradeCurrency}
+              onChange={(e) => setUpgradeCurrency(e.target.value)}
+              className="w-full rounded border px-2 py-1.5"
+            />
+          </div>
+          <textarea
+            value={upgradeDescription}
+            onChange={(e) => setUpgradeDescription(e.target.value)}
+            rows={2}
+            placeholder="Scope of the upgrade"
+            className="w-full rounded border px-2 py-1.5"
+          />
 
-          {/* Attach document while creating upgrade */}
+          {/* Attach doc at creation */}
           <div className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2">
-            <p className="text-[11px] font-medium text-slate-700">
-              Attach a document to this upgrade (optional)
-            </p>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Label / notes
-              </label>
+            <div className="flex flex-col gap-2 md:flex-row">
               <input
                 type="text"
                 value={newUpgradeDocNotes}
                 onChange={(e) => setNewUpgradeDocNotes(e.target.value)}
-                placeholder="e.g. Invoice, quote, completion certificate"
+                placeholder="Label for document (optional)"
                 className="w-full rounded border px-2 py-1.5 text-[11px]"
+              />
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                onChange={handleNewUpgradeDocFileChange}
+                className="text-[11px]"
               />
             </div>
             <div
               onDragOver={handleNewUpgradeDocDragOver}
               onDrop={handleNewUpgradeDocDrop}
-              className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center text-[11px] text-slate-600"
+              className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center text-[11px]"
             >
-              <p>
-                Drag &amp; drop a file here,
-                <br />
-                or click to choose from your computer.
-              </p>
-              <input
-                type="file"
-                accept="application/pdf,image/*"
-                className="mt-2 text-xs"
-                onChange={handleNewUpgradeDocFileChange}
-              />
-              {newUpgradeDocFile && (
-                <p className="mt-1 text-[11px] text-slate-700">
-                  Selected: {newUpgradeDocFile.name}
-                </p>
-              )}
+              Drag & drop file here (optional)
             </div>
+            {newUpgradeDocFile && (
+              <p className="text-[11px] text-slate-700">
+                Selected: {newUpgradeDocFile.name}
+              </p>
+            )}
           </div>
 
           <div className="mt-2 flex justify-end">
@@ -1675,14 +1600,14 @@ export default function AssetDetailPage() {
 
       {/* Home service history */}
       <div className="space-y-3 rounded border bg-white p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold">
               Home service history
             </p>
             <p className="text-[11px] text-slate-500">
-              Boiler services, chimney sweep, electrical checks – your “service book” for
-              this asset.
+              Boiler service, chimney sweep, electrical checks – like a car service book
+              for your home.
             </p>
           </div>
         </div>
@@ -1695,6 +1620,7 @@ export default function AssetDetailPage() {
           <div className="space-y-2 text-sm">
             {services.map((s: Service) => {
               const docs = serviceDocsById[s.id] || [];
+              const showDocForm = serviceDocTargetId === s.id;
 
               return (
                 <div
@@ -1712,123 +1638,126 @@ export default function AssetDetailPage() {
                         </p>
                       )}
                       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                        <span>Date: {formatDate(s.performed_date)}</span>
+                        <span>{formatDate(s.performed_date)}</span>
                         <span>
-                          Cost:{' '}
                           {formatMoney(s.cost_amount, s.cost_currency)}
                         </span>
                         {s.provider_name && (
-                          <span>Provider: {s.provider_name}</span>
+                          <span>by {s.provider_name}</span>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Documents for this service */}
-                  <div className="mt-2 space-y-1 text-xs">
-                    <p className="font-medium text-slate-700">
-                      Documents
-                    </p>
+                  {/* Documents */}
+                  <div className="mt-1 space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-slate-700">
+                        Documents
+                      </p>
+                      <button
+                        type="button"
+                        className="text-[11px] text-sky-700 underline"
+                        onClick={() =>
+                          setServiceDocTargetId(
+                            showDocForm ? null : s.id
+                          )
+                        }
+                      >
+                        {showDocForm ? 'Cancel' : 'Attach document'}
+                      </button>
+                    </div>
+
                     {docs.length === 0 ? (
                       <p className="text-[11px] text-slate-500">
-                        No documents attached yet.
+                        No documents yet.
                       </p>
                     ) : (
-                      <ul className="space-y-1">
+                      <div className="flex flex-wrap gap-2">
                         {docs.map((d: AssetDocument) => (
-                          <li
+                          <div
                             key={d.id}
-                            className="flex items-center justify-between rounded border bg-white px-2 py-1"
+                            className="flex items-center gap-2 rounded-full border bg-white px-2 py-1"
                           >
-                            <div>
-                              <p className="text-xs font-medium">
-                                {d.notes || 'Document'}
-                              </p>
-                              <p className="text-[10px] text-slate-500">
-                                Uploaded: {formatDate(d.uploaded_at)}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {d.file_url && (
-                                <a
-                                  href={d.file_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[11px] text-sky-700 underline"
-                                >
-                                  Open
-                                </a>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteDocument(d.id)}
-                                className="text-[11px] text-red-600"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </li>
+                            <span className="text-[11px]">📄</span>
+                            <a
+                              href={d.file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="max-w-[160px] truncate text-[11px] text-sky-700 underline"
+                            >
+                              {d.notes || 'Document'}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDocument(d.id)}
+                              className="text-[11px] text-red-600"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     )}
                   </div>
 
-                  {/* Add document to this service */}
-                  <form
-                    onSubmit={(e) => handleAddServiceDocument(e, s.id)}
-                    className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
-                  >
-                    <p className="font-medium text-slate-700">
-                      Add document to this service
-                    </p>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-slate-600">
-                        Label / notes
-                      </label>
-                      <input
-                        type="text"
-                        value={serviceDocNotes}
-                        onChange={(e) =>
-                          setServiceDocNotes(e.target.value)
-                        }
-                        placeholder="e.g. Service certificate, inspection report"
-                        className="w-full rounded border px-2 py-1.5 text-[11px]"
-                      />
-                    </div>
-
-                    <div
-                      onDragOver={handleServiceDocDragOver}
-                      onDrop={handleServiceDocDrop}
-                      className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center"
+                  {/* Compact attach-doc form */}
+                  {showDocForm && (
+                    <form
+                      onSubmit={handleAddServiceDocument}
+                      className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
                     >
-                      <p>
-                        Drag &amp; drop a file here,
-                        <br />
-                        or click to choose from your computer.
-                      </p>
-                      <input
-                        type="file"
-                        accept="*/*"
-                        className="mt-1 text-[11px]"
-                        onChange={handleServiceDocFileChange}
-                      />
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <input
+                          type="text"
+                          value={serviceDocNotes}
+                          onChange={(e) =>
+                            setServiceDocNotes(e.target.value)
+                          }
+                          placeholder="Label for document"
+                          className="w-full rounded border px-2 py-1.5"
+                        />
+                        <input
+                          type="file"
+                          accept="application/pdf,image/*"
+                          onChange={handleServiceDocFileChange}
+                          className="text-xs"
+                        />
+                      </div>
                       {serviceDocFile && (
-                        <p className="mt-1 text-[11px] text-slate-700">
+                        <p className="text-[11px] text-slate-700">
                           Selected: {serviceDocFile.name}
                         </p>
                       )}
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        disabled={savingServiceDoc || !serviceDocFile}
-                        className="mt-1 rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+                      <div
+                        onDragOver={handleServiceDocDragOver}
+                        onDrop={handleServiceDocDrop}
+                        className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
                       >
-                        {savingServiceDoc ? 'Saving…' : 'Add document'}
-                      </button>
-                    </div>
-                  </form>
+                        Drag & drop file here (optional)
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded border px-3 py-1.5"
+                          onClick={() => {
+                            setServiceDocTargetId(null);
+                            setServiceDocFile(null);
+                            setServiceDocNotes('');
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingServiceDoc || !serviceDocFile}
+                          className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
+                        >
+                          {savingServiceDoc ? 'Saving…' : 'Add'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               );
             })}
@@ -1842,79 +1771,50 @@ export default function AssetDetailPage() {
         >
           <p className="font-medium text-slate-700">Add a service</p>
           <div className="grid gap-2 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Service type
-              </label>
-              <input
-                type="text"
-                value={serviceType}
-                onChange={(e) => setServiceType(e.target.value)}
-                required
-                placeholder="e.g. Boiler service, chimney sweep"
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Provider
-              </label>
-              <input
-                type="text"
-                value={serviceProvider}
-                onChange={(e) => setServiceProvider(e.target.value)}
-                placeholder="e.g. British Gas"
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-          <div className="grid gap-2 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Date
-              </label>
-              <input
-                type="date"
-                value={serviceDate}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Cost
-              </label>
-              <input
-                type="number"
-                value={serviceCost}
-                onChange={(e) => setServiceCost(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Currency
-              </label>
-              <input
-                type="text"
-                value={serviceCurrency}
-                onChange={(e) => setServiceCurrency(e.target.value)}
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-600">
-              Description
-            </label>
-            <textarea
-              value={serviceDescription}
-              onChange={(e) => setServiceDescription(e.target.value)}
-              rows={2}
-              placeholder="What was done, any findings, recommendations…"
-              className="w-full rounded border px-2 py-1.5 text-xs"
+            <input
+              type="text"
+              value={serviceType}
+              onChange={(e) => setServiceType(e.target.value)}
+              required
+              placeholder="e.g. Boiler service"
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="text"
+              value={serviceProvider}
+              onChange={(e) => setServiceProvider(e.target.value)}
+              placeholder="Provider (optional)"
+              className="w-full rounded border px-2 py-1.5"
             />
           </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            <input
+              type="date"
+              value={serviceDate}
+              onChange={(e) => setServiceDate(e.target.value)}
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="number"
+              value={serviceCost}
+              onChange={(e) => setServiceCost(e.target.value)}
+              placeholder="Cost"
+              className="w-full rounded border px-2 py-1.5"
+            />
+            <input
+              type="text"
+              value={serviceCurrency}
+              onChange={(e) => setServiceCurrency(e.target.value)}
+              className="w-full rounded border px-2 py-1.5"
+            />
+          </div>
+          <textarea
+            value={serviceDescription}
+            onChange={(e) => setServiceDescription(e.target.value)}
+            rows={2}
+            placeholder="What was done?"
+            className="w-full rounded border px-2 py-1.5"
+          />
           <div className="flex justify-end">
             <button
               type="submit"
@@ -1929,11 +1829,11 @@ export default function AssetDetailPage() {
 
       {/* Asset-level Key documents */}
       <div className="space-y-3 rounded border bg-white p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold">Key documents</p>
             <p className="text-[11px] text-slate-500">
-              Store surveys, certificates, valuations and other PDFs against this asset.
+              Surveys, certificates, valuations – anything that underpins value.
             </p>
           </div>
         </div>
@@ -1943,79 +1843,58 @@ export default function AssetDetailPage() {
             No documents uploaded yet.
           </p>
         ) : (
-          <ul className="space-y-2 text-sm">
+          <div className="flex flex-wrap gap-2 text-sm">
             {assetLevelDocuments.map((d: AssetDocument) => (
-              <li
+              <div
                 key={d.id}
-                className="flex items-center justify-between rounded border bg-slate-50 p-3"
+                className="flex items-center gap-2 rounded-full border bg-slate-50 px-3 py-1"
               >
-                <div>
-                  <p className="font-medium">
-                    {d.notes || 'Document'}
-                  </p>
-                  {d.file_url && (
-                    <p className="text-[11px] text-slate-500">
-                      File stored in Round
-                    </p>
-                  )}
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Uploaded: {formatDate(d.uploaded_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {d.file_url && (
-                    <a
-                      href={d.file_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-sky-700 underline"
-                    >
-                      Open
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteDocument(d.id)}
-                    className="text-[11px] text-red-600"
+                <span className="text-xs">📄</span>
+                <div className="flex flex-col">
+                  <a
+                    href={d.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="max-w-[160px] truncate text-xs text-sky-700 underline"
                   >
-                    Delete
-                  </button>
+                    {d.notes || 'Document'}
+                  </a>
+                  <span className="text-[10px] text-slate-500">
+                    {formatDate(d.uploaded_at)}
+                  </span>
                 </div>
-              </li>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteDocument(d.id)}
+                  className="text-[11px] text-red-600"
+                >
+                  ✕
+                </button>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
 
-        {/* Add document */}
+        {/* Add asset-level document */}
         <form
           onSubmit={handleAddAssetDocument}
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
           <p className="font-medium text-slate-700">Add a document</p>
-
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-600">
-              Label / notes
-            </label>
-            <input
-              type="text"
-              value={assetDocNotes}
-              onChange={(e) => setAssetDocNotes(e.target.value)}
-              placeholder="e.g. Home survey, boiler certificate"
-              className="w-full rounded border px-2 py-1.5 text-xs"
-            />
-          </div>
-
+          <input
+            type="text"
+            value={assetDocNotes}
+            onChange={(e) => setAssetDocNotes(e.target.value)}
+            placeholder="Label (e.g. Home survey)"
+            className="w-full rounded border px-2 py-1.5"
+          />
           <div
             onDragOver={handleAssetDocDragOver}
             onDrop={handleAssetDocDrop}
-            className="mt-2 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center text-[11px] text-slate-600"
+            className="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center"
           >
-            <p>
-              Drag &amp; drop a PDF or image here,
-              <br />
-              or click to choose from your computer.
-            </p>
+            <p>Drag &amp; drop PDF or image here</p>
+            <p className="text-[11px] text-slate-500">or click to choose</p>
             <input
               type="file"
               accept="application/pdf,image/*"
@@ -2028,12 +1907,11 @@ export default function AssetDetailPage() {
               </p>
             )}
           </div>
-
           <div className="flex justify-end">
             <button
               type="submit"
               disabled={savingAssetDoc || !assetDocFile}
-              className="mt-2 rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+              className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
             >
               {savingAssetDoc ? 'Saving…' : 'Add document'}
             </button>
@@ -2048,7 +1926,7 @@ export default function AssetDetailPage() {
             Valuation history
           </p>
           <p className="text-[11px] text-slate-500">
-            Early experiments in how Round might track and explain changes in value over
+            Early experiments in how Round might track and explain value changes over
             time.
           </p>
           <ul className="mt-2 space-y-2 text-sm">
