@@ -331,7 +331,7 @@ export default function AssetDetailPage() {
     }
   }, [assetId, router]);
 
-  // --- Upgrades & services (unchanged) ---
+  // --- Upgrades & services ---
 
   const handleAddUpgrade = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,7 +371,9 @@ export default function AssetDetailPage() {
 
       if (error || !data) {
         console.error(error);
-        setError('Could not save upgrade.');
+        setError(
+          error?.message || 'Could not save upgrade.'
+        );
         setSavingUpgrade(false);
         return;
       }
@@ -384,9 +386,13 @@ export default function AssetDetailPage() {
       setUpgradeCost('');
       setUpgradeCurrency('GBP');
       setUpgradeProvider('');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Something went wrong saving the upgrade.');
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the upgrade.'
+      );
     } finally {
       setSavingUpgrade(false);
     }
@@ -430,7 +436,9 @@ export default function AssetDetailPage() {
 
       if (error || !data) {
         console.error(error);
-        setError('Could not save service.');
+        setError(
+          error?.message || 'Could not save service.'
+        );
         setSavingService(false);
         return;
       }
@@ -443,9 +451,13 @@ export default function AssetDetailPage() {
       setServiceCost('');
       setServiceCurrency('GBP');
       setServiceProvider('');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Something went wrong saving the service.');
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the service.'
+      );
     } finally {
       setSavingService(false);
     }
@@ -554,7 +566,7 @@ export default function AssetDetailPage() {
 
       if (error || !data) {
         console.error(error);
-        setError('Could not save document.');
+        setError(error?.message || 'Could not save document.');
         setSavingAssetDoc(false);
         return;
       }
@@ -632,7 +644,7 @@ export default function AssetDetailPage() {
 
       if (error || !data) {
         console.error(error);
-        setError('Could not save document.');
+        setError(error?.message || 'Could not save document.');
         setSavingUpgradeDoc(false);
         return;
       }
@@ -710,7 +722,7 @@ export default function AssetDetailPage() {
 
       if (error || !data) {
         console.error(error);
-        setError('Could not save document.');
+        setError(error?.message || 'Could not save document.');
         setSavingServiceDoc(false);
         return;
       }
@@ -1143,7 +1155,6 @@ export default function AssetDetailPage() {
                       </p>
                       <input
                         type="file"
-                        // be generous with types for now
                         accept="*/*"
                         className="mt-1 text-[11px]"
                         onChange={handleUpgradeDocFileChange}
