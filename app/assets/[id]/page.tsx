@@ -349,6 +349,7 @@ export default function AssetDetailPage() {
         .from('asset_upgrades')
         .insert({
           asset_id: asset.id,
+          owner_id: user.id,
           title: upgradeTitle || null,
           description: upgradeDescription || null,
           cost_amount: costNumber,
@@ -407,6 +408,7 @@ export default function AssetDetailPage() {
         .from('asset_services')
         .insert({
           asset_id: asset.id,
+          owner_id: user.id,
           service_type: serviceType || null,
           description: serviceDescription || null,
           cost_amount: costNumber,
@@ -496,6 +498,7 @@ export default function AssetDetailPage() {
         .from('asset_documents')
         .insert({
           asset_id: asset.id,
+          owner_id: user.id,
           document_type: docType || 'general',
           file_url: fileUrl,
           notes: docNotes || null,
@@ -507,7 +510,9 @@ export default function AssetDetailPage() {
 
       if (insertError || !data) {
         console.error(insertError);
-        setError('Could not save document.');
+        setError(
+          insertError?.message || 'Could not save document.'
+        );
         setSavingDoc(false);
         return;
       }
@@ -516,9 +521,13 @@ export default function AssetDetailPage() {
       setDocFile(null);
       setDocType('general');
       setDocNotes('');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Something went wrong saving the document.');
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the document.'
+      );
     } finally {
       setSavingDoc(false);
     }
