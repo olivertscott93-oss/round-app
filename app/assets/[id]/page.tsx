@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-// Loosely type Supabase rows to avoid TS shape mismatches
+// Loosely type Supabase rows to avoid type mismatch errors
 type Asset = any;
 type Upgrade = any;
 type Service = any;
@@ -30,7 +30,7 @@ function getCategoryName(asset: Asset | null): string | null {
   const cat = asset.category;
   if (!cat) return null;
 
-  // Supabase relationship can be array or single object
+  // Supabase relationship can return an array or a single object
   if (Array.isArray(cat)) {
     if (!cat[0]) return null;
     return cat[0].name ?? null;
@@ -190,6 +190,20 @@ export default function AssetDetailPage() {
   const [upgradeProvider, setUpgradeProvider] = useState('');
   const [savingUpgrade, setSavingUpgrade] = useState(false);
 
+  // Document attached at the moment of creating an upgrade
+  const [newUpgradeDocFile, setNewUpgradeDocFile] = useState<File | null>(null);
+  const [newUpgradeDocNotes, setNewUpgradeDocNotes] = useState('');
+
+  // Edit-upgrade state
+  const [editingUpgradeId, setEditingUpgradeId] = useState<string | null>(null);
+  const [editUpgradeTitle, setEditUpgradeTitle] = useState('');
+  const [editUpgradeDescription, setEditUpgradeDescription] = useState('');
+  const [editUpgradeDate, setEditUpgradeDate] = useState('');
+  const [editUpgradeCost, setEditUpgradeCost] = useState('');
+  const [editUpgradeCurrency, setEditUpgradeCurrency] = useState('GBP');
+  const [editUpgradeProvider, setEditUpgradeProvider] = useState('');
+  const [savingUpgradeEdit, setSavingUpgradeEdit] = useState(false);
+
   // Add-service form
   const [serviceType, setServiceType] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
@@ -204,7 +218,7 @@ export default function AssetDetailPage() {
   const [assetDocNotes, setAssetDocNotes] = useState('');
   const [savingAssetDoc, setSavingAssetDoc] = useState(false);
 
-  // Upgrade-level doc upload (single at a time; you choose which upgrade via the form)
+  // Upgrade-level doc upload (for existing upgrades)
   const [upgradeDocFile, setUpgradeDocFile] = useState<File | null>(null);
   const [upgradeDocNotes, setUpgradeDocNotes] = useState('');
   const [savingUpgradeDoc, setSavingUpgradeDoc] = useState(false);
@@ -331,138 +345,6 @@ export default function AssetDetailPage() {
     }
   }, [assetId, router]);
 
-  // --- Upgrades & services ---
-
-  const handleAddUpgrade = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!asset) return;
-    if (!upgradeTitle.trim()) return;
-
-    setSavingUpgrade(true);
-    setError(null);
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push('/login');
-        return;
-      }
-
-      const costNumber =
-        upgradeCost.trim() === '' ? null : Number(upgradeCost);
-
-      const { data, error } = await supabase
-        .from('asset_upgrades')
-        .insert({
-          asset_id: asset.id,
-          owner_id: user.id,
-          title: upgradeTitle || null,
-          description: upgradeDescription || null,
-          cost_amount: costNumber,
-          cost_currency: upgradeCurrency || 'GBP',
-          performed_date: upgradeDate || null,
-          provider_name: upgradeProvider || null,
-        })
-        .select('*')
-        .single();
-
-      if (error || !data) {
-        console.error(error);
-        setError(
-          error?.message || 'Could not save upgrade.'
-        );
-        setSavingUpgrade(false);
-        return;
-      }
-
-      setUpgrades((prev) => [data as Upgrade, ...prev]);
-
-      setUpgradeTitle('');
-      setUpgradeDescription('');
-      setUpgradeDate('');
-      setUpgradeCost('');
-      setUpgradeCurrency('GBP');
-      setUpgradeProvider('');
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        typeof err?.message === 'string'
-          ? err.message
-          : 'Something went wrong saving the upgrade.'
-      );
-    } finally {
-      setSavingUpgrade(false);
-    }
-  };
-
-  const handleAddService = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!asset) return;
-    if (!serviceType.trim()) return;
-
-    setSavingService(true);
-    setError(null);
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push('/login');
-        return;
-      }
-
-      const costNumber =
-        serviceCost.trim() === '' ? null : Number(serviceCost);
-
-      const { data, error } = await supabase
-        .from('asset_services')
-        .insert({
-          asset_id: asset.id,
-          owner_id: user.id,
-          service_type: serviceType || null,
-          description: serviceDescription || null,
-          cost_amount: costNumber,
-          cost_currency: serviceCurrency || 'GBP',
-          performed_date: serviceDate || null,
-          provider_name: serviceProvider || null,
-        })
-        .select('*')
-        .single();
-
-      if (error || !data) {
-        console.error(error);
-        setError(
-          error?.message || 'Could not save service.'
-        );
-        setSavingService(false);
-        return;
-      }
-
-      setServices((prev) => [data as Service, ...prev]);
-
-      setServiceType('');
-      setServiceDescription('');
-      setServiceDate('');
-      setServiceCost('');
-      setServiceCurrency('GBP');
-      setServiceProvider('');
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        typeof err?.message === 'string'
-          ? err.message
-          : 'Something went wrong saving the service.'
-      );
-    } finally {
-      setSavingService(false);
-    }
-  };
-
   // --- Shared doc helpers ---
 
   const uploadFileToBucket = async (
@@ -511,6 +393,334 @@ export default function AssetDetailPage() {
     }
   };
 
+  // --- Upgrades & improvements ---
+
+  const handleNewUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setNewUpgradeDocFile(file);
+  };
+
+  const handleNewUpgradeDocDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) setNewUpgradeDocFile(file);
+  };
+
+  const handleNewUpgradeDocDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleAddUpgrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!asset) return;
+    if (!upgradeTitle.trim()) return;
+
+    setSavingUpgrade(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const costNumber =
+        upgradeCost.trim() === '' ? null : Number(upgradeCost);
+
+      const { data, error } = await supabase
+        .from('asset_upgrades')
+        .insert({
+          asset_id: asset.id,
+          owner_id: user.id,
+          title: upgradeTitle || null,
+          description: upgradeDescription || null,
+          cost_amount: costNumber,
+          cost_currency: upgradeCurrency || 'GBP',
+          performed_date: upgradeDate || null,
+          provider_name: upgradeProvider || null,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError(error?.message || 'Could not save upgrade.');
+        setSavingUpgrade(false);
+        return;
+      }
+
+      const insertedUpgrade = data as Upgrade;
+
+      // If user attached a document while creating the upgrade, upload & link it
+      if (newUpgradeDocFile) {
+        const fileUrl = await uploadFileToBucket(
+          newUpgradeDocFile,
+          user.id,
+          asset.id
+        );
+        if (fileUrl) {
+          const { data: docData, error: docError } = await supabase
+            .from('asset_documents')
+            .insert({
+              asset_id: asset.id,
+              owner_id: user.id,
+              file_url: fileUrl,
+              notes: newUpgradeDocNotes || null,
+              upgrade_id: insertedUpgrade.id,
+              service_id: null,
+            })
+            .select('*')
+            .single();
+
+          if (docError) {
+            console.error(docError);
+            setError(docError.message || 'Could not save upgrade document.');
+          } else if (docData) {
+            setDocuments((prev) => [docData as AssetDocument, ...prev]);
+          }
+        }
+      }
+
+      setUpgrades((prev) => [insertedUpgrade, ...prev]);
+
+      // Reset form
+      setUpgradeTitle('');
+      setUpgradeDescription('');
+      setUpgradeDate('');
+      setUpgradeCost('');
+      setUpgradeCurrency('GBP');
+      setUpgradeProvider('');
+      setNewUpgradeDocFile(null);
+      setNewUpgradeDocNotes('');
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the upgrade.'
+      );
+    } finally {
+      setSavingUpgrade(false);
+    }
+  };
+
+  const startEditUpgrade = (u: Upgrade) => {
+    setEditingUpgradeId(u.id);
+    setEditUpgradeTitle(u.title || '');
+    setEditUpgradeDescription(u.description || '');
+    setEditUpgradeDate(u.performed_date || '');
+    setEditUpgradeCost(
+      u.cost_amount != null ? String(u.cost_amount) : ''
+    );
+    setEditUpgradeCurrency(u.cost_currency || 'GBP');
+    setEditUpgradeProvider(u.provider_name || '');
+  };
+
+  const cancelEditUpgrade = () => {
+    setEditingUpgradeId(null);
+    setEditUpgradeTitle('');
+    setEditUpgradeDescription('');
+    setEditUpgradeDate('');
+    setEditUpgradeCost('');
+    setEditUpgradeCurrency('GBP');
+    setEditUpgradeProvider('');
+  };
+
+  const handleUpdateUpgrade = async (
+    e: React.FormEvent,
+    upgradeId: string
+  ) => {
+    e.preventDefault();
+    if (!asset) return;
+    if (!editUpgradeTitle.trim()) return;
+
+    setSavingUpgradeEdit(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const costNumber =
+        editUpgradeCost.trim() === '' ? null : Number(editUpgradeCost);
+
+      const { data, error } = await supabase
+        .from('asset_upgrades')
+        .update({
+          title: editUpgradeTitle || null,
+          description: editUpgradeDescription || null,
+          performed_date: editUpgradeDate || null,
+          cost_amount: costNumber,
+          cost_currency: editUpgradeCurrency || 'GBP',
+          provider_name: editUpgradeProvider || null,
+        })
+        .eq('id', upgradeId)
+        .eq('asset_id', asset.id)
+        .eq('owner_id', user.id)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError(error?.message || 'Could not update upgrade.');
+        setSavingUpgradeEdit(false);
+        return;
+      }
+
+      setUpgrades((prev) =>
+        prev.map((u: Upgrade) =>
+          u.id === upgradeId ? (data as Upgrade) : u
+        )
+      );
+      cancelEditUpgrade();
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong updating the upgrade.'
+      );
+    } finally {
+      setSavingUpgradeEdit(false);
+    }
+  };
+
+  const handleDeleteUpgrade = async (upgradeId: string) => {
+    if (!asset) return;
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      // Delete related documents first (safer if you later add FK constraints)
+      const { error: docsError } = await supabase
+        .from('asset_documents')
+        .delete()
+        .eq('upgrade_id', upgradeId);
+
+      if (docsError) {
+        console.error(docsError);
+        setError(
+          docsError.message ||
+            'Could not delete related documents for this upgrade.'
+        );
+        // Still attempt to delete the upgrade itself
+      }
+
+      const { error: upgradeError } = await supabase
+        .from('asset_upgrades')
+        .delete()
+        .eq('id', upgradeId)
+        .eq('asset_id', asset.id)
+        .eq('owner_id', user.id);
+
+      if (upgradeError) {
+        console.error(upgradeError);
+        setError(upgradeError.message || 'Could not delete upgrade.');
+        return;
+      }
+
+      setUpgrades((prev) =>
+        prev.filter((u: Upgrade) => u.id !== upgradeId)
+      );
+      setDocuments((prev) =>
+        prev.filter((d: AssetDocument) => d.upgrade_id !== upgradeId)
+      );
+      if (editingUpgradeId === upgradeId) {
+        cancelEditUpgrade();
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong deleting the upgrade.'
+      );
+    }
+  };
+
+  // --- Services ---
+
+  const handleAddService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!asset) return;
+    if (!serviceType.trim()) return;
+
+    setSavingService(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const costNumber =
+        serviceCost.trim() === '' ? null : Number(serviceCost);
+
+      const { data, error } = await supabase
+        .from('asset_services')
+        .insert({
+          asset_id: asset.id,
+          owner_id: user.id,
+          service_type: serviceType || null,
+          description: serviceDescription || null,
+          cost_amount: costNumber,
+          cost_currency: serviceCurrency || 'GBP',
+          performed_date: serviceDate || null,
+          provider_name: serviceProvider || null,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError(error?.message || 'Could not save service.');
+        setSavingService(false);
+        return;
+      }
+
+      setServices((prev) => [data as Service, ...prev]);
+
+      setServiceType('');
+      setServiceDescription('');
+      setServiceDate('');
+      setServiceCost('');
+      setServiceCurrency('GBP');
+      setServiceProvider('');
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the service.'
+      );
+    } finally {
+      setSavingService(false);
+    }
+  };
+
   // --- Asset-level docs ---
 
   const handleAssetDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -545,7 +755,11 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const fileUrl = await uploadFileToBucket(assetDocFile, user.id, asset.id);
+      const fileUrl = await uploadFileToBucket(
+        assetDocFile,
+        user.id,
+        asset.id
+      );
       if (!fileUrl) {
         setSavingAssetDoc(false);
         return;
@@ -586,7 +800,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Upgrade-level docs (simplified: one file at a time, you choose the upgrade) ---
+  // --- Upgrade-level docs (for existing upgrades) ---
 
   const handleUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -623,7 +837,11 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const fileUrl = await uploadFileToBucket(upgradeDocFile, user.id, asset.id);
+      const fileUrl = await uploadFileToBucket(
+        upgradeDocFile,
+        user.id,
+        asset.id
+      );
       if (!fileUrl) {
         setSavingUpgradeDoc(false);
         return;
@@ -664,7 +882,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // --- Service-level docs (simplified) ---
+  // --- Service-level docs ---
 
   const handleServiceDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -701,7 +919,11 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const fileUrl = await uploadFileToBucket(serviceDocFile, user.id, asset.id);
+      const fileUrl = await uploadFileToBucket(
+        serviceDocFile,
+        user.id,
+        asset.id
+      );
       if (!fileUrl) {
         setSavingServiceDoc(false);
         return;
@@ -1022,7 +1244,7 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Upgrades & improvements */}
+      {/* Upgrades & Improvements */}
       <div className="space-y-3 rounded border bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -1070,6 +1292,22 @@ export default function AssetDetailPage() {
                           <span>Provider: {u.provider_name}</span>
                         )}
                       </div>
+                    </div>
+                    <div className="flex gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        className="text-sky-700 underline"
+                        onClick={() => startEditUpgrade(u)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-red-600 underline"
+                        onClick={() => handleDeleteUpgrade(u.id)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
 
@@ -1122,7 +1360,7 @@ export default function AssetDetailPage() {
                     )}
                   </div>
 
-                  {/* Add document to this upgrade */}
+                  {/* Add document to this existing upgrade */}
                   <form
                     onSubmit={(e) => handleAddUpgradeDocument(e, u.id)}
                     className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
@@ -1137,7 +1375,9 @@ export default function AssetDetailPage() {
                       <input
                         type="text"
                         value={upgradeDocNotes}
-                        onChange={(e) => setUpgradeDocNotes(e.target.value)}
+                        onChange={(e) =>
+                          setUpgradeDocNotes(e.target.value)
+                        }
                         placeholder="e.g. Invoice, completion certificate"
                         className="w-full rounded border px-2 py-1.5 text-[11px]"
                       />
@@ -1176,6 +1416,119 @@ export default function AssetDetailPage() {
                       </button>
                     </div>
                   </form>
+
+                  {/* Inline edit form for this upgrade */}
+                  {editingUpgradeId === u.id && (
+                    <form
+                      onSubmit={(e) =>
+                        handleUpdateUpgrade(e, u.id)
+                      }
+                      className="mt-3 space-y-2 rounded border border-slate-300 bg-white p-2 text-[11px]"
+                    >
+                      <p className="font-medium text-slate-700">
+                        Edit upgrade
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-600">
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            value={editUpgradeTitle}
+                            onChange={(e) =>
+                              setEditUpgradeTitle(e.target.value)
+                            }
+                            required
+                            className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-600">
+                            Provider
+                          </label>
+                          <input
+                            type="text"
+                            value={editUpgradeProvider}
+                            onChange={(e) =>
+                              setEditUpgradeProvider(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-600">
+                            Date
+                          </label>
+                          <input
+                            type="date"
+                            value={editUpgradeDate}
+                            onChange={(e) =>
+                              setEditUpgradeDate(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-600">
+                            Cost
+                          </label>
+                          <input
+                            type="number"
+                            value={editUpgradeCost}
+                            onChange={(e) =>
+                              setEditUpgradeCost(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-600">
+                            Currency
+                          </label>
+                          <input
+                            type="text"
+                            value={editUpgradeCurrency}
+                            onChange={(e) =>
+                              setEditUpgradeCurrency(e.target.value)
+                            }
+                            className="w-full rounded border px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] text-slate-600">
+                          Description
+                        </label>
+                        <textarea
+                          value={editUpgradeDescription}
+                          onChange={(e) =>
+                            setEditUpgradeDescription(e.target.value)
+                          }
+                          rows={2}
+                          className="w-full rounded border px-2 py-1.5 text-[11px]"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelEditUpgrade}
+                          className="rounded border px-3 py-1.5 text-[11px]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingUpgradeEdit}
+                          className="rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+                        >
+                          {savingUpgradeEdit ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               );
             })}
@@ -1266,7 +1619,49 @@ export default function AssetDetailPage() {
               className="w-full rounded border px-2 py-1.5 text-xs"
             />
           </div>
-          <div className="flex justify-end">
+
+          {/* Attach document while creating upgrade */}
+          <div className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2">
+            <p className="text-[11px] font-medium text-slate-700">
+              Attach a document to this upgrade (optional)
+            </p>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Label / notes
+              </label>
+              <input
+                type="text"
+                value={newUpgradeDocNotes}
+                onChange={(e) => setNewUpgradeDocNotes(e.target.value)}
+                placeholder="e.g. Invoice, quote, completion certificate"
+                className="w-full rounded border px-2 py-1.5 text-[11px]"
+              />
+            </div>
+            <div
+              onDragOver={handleNewUpgradeDocDragOver}
+              onDrop={handleNewUpgradeDocDrop}
+              className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center text-[11px] text-slate-600"
+            >
+              <p>
+                Drag &amp; drop a file here,
+                <br />
+                or click to choose from your computer.
+              </p>
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                className="mt-2 text-xs"
+                onChange={handleNewUpgradeDocFileChange}
+              />
+              {newUpgradeDocFile && (
+                <p className="mt-1 text-[11px] text-slate-700">
+                  Selected: {newUpgradeDocFile.name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-2 flex justify-end">
             <button
               type="submit"
               disabled={savingUpgrade}
@@ -1393,7 +1788,9 @@ export default function AssetDetailPage() {
                       <input
                         type="text"
                         value={serviceDocNotes}
-                        onChange={(e) => setServiceDocNotes(e.target.value)}
+                        onChange={(e) =>
+                          setServiceDocNotes(e.target.value)
+                        }
                         placeholder="e.g. Service certificate, inspection report"
                         className="w-full rounded border px-2 py-1.5 text-[11px]"
                       />
