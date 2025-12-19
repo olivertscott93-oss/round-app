@@ -201,7 +201,6 @@ export default function AssetDetailPage() {
 
   // Asset-level doc upload
   const [docFile, setDocFile] = useState<File | null>(null);
-  const [docType, setDocType] = useState('general');
   const [docNotes, setDocNotes] = useState('');
   const [savingDoc, setSavingDoc] = useState(false);
 
@@ -499,7 +498,6 @@ export default function AssetDetailPage() {
         .insert({
           asset_id: asset.id,
           owner_id: user.id,
-          document_type: docType || 'general',
           file_url: fileUrl,
           notes: docNotes || null,
           upgrade_id: null,
@@ -519,7 +517,6 @@ export default function AssetDetailPage() {
 
       setDocuments((prev) => [data as AssetDocument, ...prev]);
       setDocFile(null);
-      setDocType('general');
       setDocNotes('');
     } catch (err: any) {
       console.error(err);
@@ -1103,11 +1100,11 @@ export default function AssetDetailPage() {
               >
                 <div>
                   <p className="font-medium">
-                    {d.document_type || 'Document'}
+                    {d.notes || 'Document'}
                   </p>
-                  {d.notes && (
-                    <p className="text-xs text-slate-600">
-                      {d.notes}
+                  {d.file_url && (
+                    <p className="text-[11px] text-slate-500">
+                      File stored in Round
                     </p>
                   )}
                   <p className="mt-1 text-[11px] text-slate-500">
@@ -1135,31 +1132,18 @@ export default function AssetDetailPage() {
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
           <p className="font-medium text-slate-700">Add a document</p>
-          <div className="grid gap-2 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Type
-              </label>
-              <input
-                type="text"
-                value={docType}
-                onChange={(e) => setDocType(e.target.value)}
-                placeholder="e.g. Survey, valuation, certificate"
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-[11px] text-slate-600">
-                Notes
-              </label>
-              <input
-                type="text"
-                value={docNotes}
-                onChange={(e) => setDocNotes(e.target.value)}
-                placeholder="Short description (optional)"
-                className="w-full rounded border px-2 py-1.5 text-xs"
-              />
-            </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-600">
+              Label / notes
+            </label>
+            <input
+              type="text"
+              value={docNotes}
+              onChange={(e) => setDocNotes(e.target.value)}
+              placeholder="e.g. Home survey, boiler certificate"
+              className="w-full rounded border px-2 py-1.5 text-xs"
+            />
           </div>
 
           <div
