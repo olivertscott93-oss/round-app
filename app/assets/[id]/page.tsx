@@ -1,8 +1,18 @@
 'use client';
 
-import { useEffect, useState, ChangeEvent } from 'react';
+import {
+  useEffect,
+  useState,
+  ChangeEvent,
+  DragEvent,
+} from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+
+type Category = {
+  id: string;
+  name: string | null;
+};
 
 type Asset = {
   id: string;
@@ -22,23 +32,58 @@ type Asset = {
   city: string | null;
   country: string | null;
   category_id: string | null;
-  asset_type_id: string | null;
-  category?: {
-    name: string | null;
-  } | null;
+  category?: Category | null;
+};
+
+type Upgrade = {
+  id: string;
+  asset_id: string;
+  title: string | null;
+  description: string | null;
+  cost_amount: number | null;
+  cost_currency: string | null;
+  performed_date: string | null;
+  provider_name: string | null;
+  notes: string | null;
+};
+
+type Service = {
+  id: string;
+  asset_id: string;
+  service_type: string | null;
+  description: string | null;
+  cost_amount: number | null;
+  cost_currency: string | null;
+  performed_date: string | null;
+  provider_name: string | null;
+  notes: string | null;
+};
+
+type Document = {
+  id: string;
+  asset_id: string;
+  document_type: string | null;
+  file_url: string | null;
+  notes: string | null;
+  uploaded_at: string | null;
+  upgrade_id: string | null;
+  service_id: string | null;
+};
+
+type Valuation = {
+  id: string;
+  valuation_source: string | null;
+  suggested_value: number | null;
+  currency: string | null;
+  created_at: string;
 };
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-function getCategoryName(asset: Asset): string {
-  if (!asset.category) return '—';
-  return asset.category.name ?? '—';
-}
-
-function isHomeCategory(asset: Asset): boolean {
-  const categoryName = getCategoryName(asset);
-  const lower = categoryName.toLowerCase();
-  const homeKeywords = [
+function isHomeCategoryName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  const keywords = [
     'home',
     'house',
     'property',
@@ -46,306 +91,121 @@ function isHomeCategory(asset: Asset): boolean {
     'apartment',
     'real estate',
   ];
-  return homeKeywords.some((word) => lower.includes(word));
+  return keywords.some((k) => lower.includes(k));
 }
 
-function computeIdentity(
-  asset: Asset
-): {
-  level: IdentityLevel;
-  shortLabel: string;
-  tooltip: string;
-  colorClass: string;
-} {
-  const categoryName = getCategoryName(asset);
-  const isHome = isHomeCategory(asset);
+function formatMoney(
+  value: number | null | undefined,
+  currency: string | null | undefined
+): string {
+  if (value == null) return '—';
+  const cur = currency || 'GBP';
+  const symbol = cur === 'GBP' ? '£' : cur === 'EUR' ? '€' : cur === 'USD' ? '$' : cur + ' ';
+  return `${symbol}${value.toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  })}`;
+}
 
-  const purchaseUrl = asset.purchase_url || '';
-  const hasZooplaOrRightmove =
-    purchaseUrl.includes('zoopla.') ||
-    purchaseUrl.includes('rightmove.');
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString();
+  } catch {
+    return dateStr;
+  }
+}
+
+function computeIdentityLevel(asset: Asset): IdentityLevel {
+  const isHome = isHomeCategoryName(asset.category?.name);
+  const hasTitle = !!asset.title;
+  const hasCity = !!asset.city;
+  const hasCountry = !!asset.country;
+  const hasBrandOrModel = !!asset.brand || !!asset.model_name;
+  const hasSerial = !!asset.serial_number;
+  const hasUrl = !!asset.purchase_url;
 
   if (isHome) {
-    const hasTitle = !!asset.title;
-    const hasCity = !!asset.city;
-    const hasCountry = !!asset.country;
     const hasFullAddress = hasTitle && hasCity && hasCountry;
+    const url = asset.purchase_url?.toLowerCase() || '';
+    const isPropUrl = url.includes('zoopla.') || url.includes('rightmove.');
+    if (hasFullAddress && isPropUrl) return 'strong';
+    if (hasFullAddress || isPropUrl) return 'good';
+    if (hasTitle || hasCity || hasCountry) return 'basic';
+    return 'unknown';
+  }
 
-    if (hasFullAddress && hasZooplaOrRightmove) {
+  if (!hasTitle && !hasBrandOrModel) return 'unknown';
+  if (hasBrandOrModel && asset.category?.name && (hasSerial || hasUrl)) return 'strong';
+  if (hasBrandOrModel && asset.category?.name) return 'good';
+  if (hasTitle) return 'basic';
+  return 'unknown';
+}
+
+function computeRoundReady(asset: Asset): {
+  ready: boolean;
+  statusLabel: string;
+  explanation: string;
+} {
+  const identity = computeIdentityLevel(asset);
+  const hasContext =
+    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+
+  const isHome = isHomeCategoryName(asset.category?.name);
+  const hasFullAddress = !!asset.title && !!asset.city && !!asset.country;
+  const url = asset.purchase_url?.toLowerCase() || '';
+  const isPropUrl = url.includes('zoopla.') || url.includes('rightmove.');
+
+  if (isHome) {
+    if (hasFullAddress && isPropUrl && hasContext) {
       return {
-        level: 'strong',
-        shortLabel: 'Strong',
-        tooltip:
-          'Identity: Strong – full address and a Zoopla/Rightmove link give Round a very precise handle on this home.',
-        colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+        ready: true,
+        statusLabel: 'Round Ready',
+        explanation:
+          'Full address and property listing link available – Round can confidently match this home against market data.',
       };
     }
-
-    if (hasFullAddress || hasZooplaOrRightmove) {
+    if (hasFullAddress || isPropUrl) {
       return {
-        level: 'good',
-        shortLabel: 'Good',
-        tooltip:
-          'Identity: Good – we have either the full address or a property portal link. Add both for the best match.',
-        colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
+        ready: false,
+        statusLabel: 'Almost Round Ready',
+        explanation:
+          'Round knows the property fairly well. Add the Zoopla/Rightmove link and a document (survey or valuation) to fully unlock comparisons.',
       };
     }
-
-    if (hasTitle) {
-      return {
-        level: 'basic',
-        shortLabel: 'Basic',
-        tooltip:
-          'Identity: Basic – we know roughly what the home is, but a full address and property link will help Round a lot.',
-        colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
-      };
-    }
-
     return {
-      level: 'unknown',
-      shortLabel: 'Unknown',
-      tooltip:
-        'Identity: Unknown – add at least an address or a property portal link.',
-      colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+      ready: false,
+      statusLabel: 'Needs more detail',
+      explanation:
+        'Add the full address and, ideally, a Zoopla or Rightmove link so Round clearly understands which home this is.',
     };
   }
 
-  // Default (non-home) identity logic
-  const hasCategory =
-    !!categoryName && categoryName !== '—';
-  const hasBrand = !!asset.brand;
-  const hasModel = !!asset.model_name;
-  const hasSerial = !!asset.serial_number;
-
-  let score = 0;
-  if (hasCategory) score++;
-  if (hasBrand) score++;
-  if (hasModel) score++;
-  if (hasSerial) score++;
-
-  if (score >= 3) {
+  if (identity === 'strong' && hasContext) {
     return {
-      level: 'strong',
-      shortLabel: 'Strong',
-      tooltip:
-        'Identity: Strong – brand, model, category and/or unique ID are clearly defined.',
-      colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      ready: true,
+      statusLabel: 'Round Ready',
+      explanation:
+        'Identity and context are strong – Round can meaningfully compare this asset against similar items.',
     };
   }
 
-  if (score === 2) {
+  if (identity === 'good') {
     return {
-      level: 'good',
-      shortLabel: 'Good',
-      tooltip:
-        'Identity: Good – at least two of brand, model and category are known.',
-      colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
-    };
-  }
-
-  if (score === 1) {
-    return {
-      level: 'basic',
-      shortLabel: 'Basic',
-      tooltip:
-        'Identity: Basic – Round has one signal, but would benefit from brand/model/category.',
-      colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
+      ready: false,
+      statusLabel: 'Almost Round Ready',
+      explanation:
+        'Brand/model and category are solid, but add a receipt, URL or notes so Round has more context.',
     };
   }
 
   return {
-    level: 'unknown',
-    shortLabel: 'Unknown',
-    tooltip: 'Identity: Unknown – Round has almost no signals yet.',
-    colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+    ready: false,
+    statusLabel: 'Needs more detail',
+    explanation:
+      'Give this asset a clearer identity (brand/model or full description) and at least one supporting document or link.',
   };
-}
-
-function isRoundReady(asset: Asset): boolean {
-  const identity = computeIdentity(asset);
-  const purchaseUrl = asset.purchase_url || '';
-  const hasZooplaOrRightmove =
-    purchaseUrl.includes('zoopla.') ||
-    purchaseUrl.includes('rightmove.');
-
-  const hasGenericContext =
-    !!asset.purchase_url ||
-    !!asset.notes_internal ||
-    !!asset.receipt_url;
-
-  const isHome = isHomeCategory(asset);
-
-  if (isHome) {
-    const hasTitle = !!asset.title;
-    const hasCity = !!asset.city;
-    const hasCountry = !!asset.country;
-    const hasFullAddress = hasTitle && hasCity && hasCountry;
-
-    // For homes: Round-Ready = full address + Zoopla/Rightmove link
-    return hasFullAddress && hasZooplaOrRightmove;
-  }
-
-  return (
-    (identity.level === 'good' ||
-      identity.level === 'strong') &&
-    hasGenericContext
-  );
-}
-
-function getRoundNextSteps(asset: Asset): string[] {
-  if (!asset) return [];
-
-  const isHome = isHomeCategory(asset);
-  const purchaseUrl = asset.purchase_url || '';
-  const hasZooplaOrRightmove =
-    purchaseUrl.includes('zoopla.') ||
-    purchaseUrl.includes('rightmove.');
-
-  const hasBrand = !!asset.brand;
-  const hasModel = !!asset.model_name;
-  const hasCategory =
-    !!asset.category_id || !!asset.category?.name;
-  const hasPurchasePrice =
-    asset.purchase_price !== null &&
-    asset.purchase_price !== undefined;
-  const hasPurchaseDate = !!asset.purchase_date;
-  const hasContext =
-    !!asset.purchase_url ||
-    !!asset.notes_internal ||
-    !!asset.receipt_url;
-
-  const hints: string[] = [];
-
-  if (isHome) {
-    const hasTitle = !!asset.title;
-    const hasCity = !!asset.city;
-    const hasCountry = !!asset.country;
-    const hasFullAddress = hasTitle && hasCity && hasCountry;
-
-    const roundReady = hasFullAddress && hasZooplaOrRightmove;
-
-    if (roundReady) {
-      hints.push(
-        'This home is Round-Ready. Next step: connect it to live property market data so Round can refresh valuations automatically.'
-      );
-      hints.push(
-        'Keep feeding Round with upgrades, service history and key documents – it will all support future valuations and resale discussions.'
-      );
-      return hints;
-    }
-
-    if (!hasFullAddress) {
-      hints.push(
-        'Add the full address – street, city and country (and ideally postcode in the title) so Round can locate this home precisely.'
-      );
-    }
-
-    if (!hasZooplaOrRightmove) {
-      hints.push(
-        'Add a Zoopla or Rightmove link for this property so Round can tap into existing property data and comparables.'
-      );
-    }
-
-    if (!hasPurchasePrice) {
-      hints.push(
-        'Add what you originally paid for this home – that becomes the baseline for tracking your gain over time.'
-      );
-    }
-
-    if (!hasPurchaseDate) {
-      hints.push(
-        'Add the purchase date so Round understands how long you have held the property and can model annual appreciation.'
-      );
-    }
-
-    if (!hasContext) {
-      hints.push(
-        'Upload your purchase documents or survey, or paste key notes from your solicitor/agent emails so Round has richer context.'
-      );
-    }
-
-    if (hints.length === 0) {
-      hints.push(
-        'Add any small missing details above – then this home will be fully Round-Ready.'
-      );
-    }
-
-    return hints;
-  }
-
-  // Non-home assets
-  const identityScore =
-    (hasBrand ? 1 : 0) +
-    (hasModel ? 1 : 0) +
-    (hasCategory ? 1 : 0);
-
-  const roundReady =
-    (identityScore >= 2) && hasContext;
-
-  if (roundReady) {
-    hints.push(
-      'This asset is Round-Ready. Next step: plug it into live market data and automated valuations.'
-    );
-    hints.push(
-      'Round will use your receipts, links and notes as the raw material for smarter, ongoing valuations.'
-    );
-    return hints;
-  }
-
-  if (!hasBrand || !hasModel) {
-    hints.push(
-      'Add brand and model so Round can match this asset accurately against market data.'
-    );
-  }
-
-  if (!hasCategory) {
-    hints.push(
-      'Set a category (e.g. Furniture, Tech, Vehicle) so Round compares it to the right market.'
-    );
-  }
-
-  if (!hasPurchasePrice) {
-    hints.push(
-      'Add what you originally paid – that’s the baseline for tracking gain or loss.'
-    );
-  }
-
-  if (!hasPurchaseDate) {
-    hints.push(
-      'Add the purchase date so Round can understand how the value should move over time.'
-    );
-  }
-
-  if (!hasContext) {
-    hints.push(
-      'Upload a receipt, paste an order confirmation, or add a purchase link so Round has something to parse.'
-    );
-  }
-
-  if (hints.length === 0) {
-    hints.push(
-      'Add any small missing details above – then this asset will be fully Round-Ready.'
-    );
-  }
-
-  return hints;
-}
-
-function formatMoney(
-  value: number | null,
-  currency: string | null = 'GBP'
-): string {
-  if (value == null) return '—';
-  const cur = currency ?? 'GBP';
-  if (cur === 'GBP') return `£${value.toFixed(0)}`;
-  return `${cur} ${value.toFixed(0)}`;
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-GB');
 }
 
 export default function AssetDetailPage() {
@@ -354,23 +214,40 @@ export default function AssetDetailPage() {
   const assetId = params?.id as string;
 
   const [asset, setAsset] = useState<Asset | null>(null);
-  const [valuations, setValuations] =
-    useState<any[]>([]);
-  const [upgrades, setUpgrades] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
-  const [documents, setDocuments] =
-    useState<any[]>([]);
+  const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [valuations, setValuations] = useState<Valuation[]>([]);
+
   const [loading, setLoading] = useState(true);
-  const [runningImport, setRunningImport] =
-    useState(false);
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [savingUpgrade, setSavingUpgrade] = useState(false);
+  const [savingService, setSavingService] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // New upgrade form
+  const [upgradeTitle, setUpgradeTitle] = useState('');
+  const [upgradeDescription, setUpgradeDescription] = useState('');
+  const [upgradeDate, setUpgradeDate] = useState('');
+  const [upgradeCost, setUpgradeCost] = useState('');
+  const [upgradeCurrency, setUpgradeCurrency] = useState('GBP');
+  const [upgradeProvider, setUpgradeProvider] = useState('');
+
+  // New service form
+  const [serviceType, setServiceType] = useState('');
+  const [serviceDescription, setServiceDescription] = useState('');
+  const [serviceDate, setServiceDate] = useState('');
+  const [serviceCost, setServiceCost] = useState('');
+  const [serviceCurrency, setServiceCurrency] = useState('GBP');
+  const [serviceProvider, setServiceProvider] = useState('');
+
+  // Asset-level document upload (kept simple here)
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState('general');
+  const [docNotes, setDocNotes] = useState('');
+  const [savingDoc, setSavingDoc] = useState(false);
 
   useEffect(() => {
-    if (!assetId) return;
-
-    const load = async () => {
+    const loadData = async () => {
       setLoading(true);
       setError(null);
 
@@ -383,161 +260,152 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const {
-        data: assetData,
-        error: assetError,
-      } = await supabase
-        .from('assets')
-        .select(
+      try {
+        // Asset + category
+        const { data: assetData, error: assetError } = await supabase
+          .from('assets')
+          .select(
+            `
+            id,
+            title,
+            status,
+            brand,
+            model_name,
+            serial_number,
+            purchase_price,
+            purchase_currency,
+            purchase_date,
+            current_estimated_value,
+            estimate_currency,
+            purchase_url,
+            receipt_url,
+            notes_internal,
+            city,
+            country,
+            category_id,
+            category:categories ( id, name )
           `
-          id,
-          title,
-          status,
-          brand,
-          model_name,
-          serial_number,
-          purchase_price,
-          purchase_currency,
-          purchase_date,
-          current_estimated_value,
-          estimate_currency,
-          purchase_url,
-          receipt_url,
-          notes_internal,
-          city,
-          country,
-          category_id,
-          asset_type_id,
-          category:categories ( name )
-        `
-        )
-        .eq('id', assetId)
-        .eq('owner_id', user.id)
-        .single();
+          )
+          .eq('id', assetId)
+          .eq('owner_id', user.id)
+          .single();
 
-      if (assetError || !assetData) {
-        console.error(assetError);
-        setError('Could not load this asset.');
-        setLoading(false);
-        return;
-      }
+        if (assetError || !assetData) {
+          console.error(assetError);
+          setError('Could not load this asset.');
+          setLoading(false);
+          return;
+        }
 
-      const normalisedAsset: Asset = {
-        ...(assetData as any),
-        category: Array.isArray(
-          (assetData as any).category
-        )
-          ? (assetData as any).category[0] ?? null
-          : (assetData as any).category ?? null,
-      };
+        setAsset(assetData as Asset);
 
-      setAsset(normalisedAsset);
-
-      const { data: valuationsData } =
-        await supabase
-          .from('valuations')
-          .select(`
-          id,
-          asset_id,
-          valuation_source,
-          suggested_value,
-          currency,
-          new_price_min,
-          new_price_max,
-          used_price_min,
-          used_price_max,
-          raw_data_json,
-          created_at
-        `)
-          .eq('asset_id', assetId)
-          .order('created_at', {
-            ascending: false,
-          });
-
-      setValuations(valuationsData || []);
-
-      const { data: upgradesData } =
-        await supabase
+        // Upgrades
+        const { data: upgradesData } = await supabase
           .from('asset_upgrades')
           .select(
             `
-          id,
-          asset_id,
-          title,
-          description,
-          cost_amount,
-          cost_currency,
-          completed_at,
-          supplier_name,
-          notes,
-          created_at
-        `
+            id,
+            asset_id,
+            title,
+            description,
+            cost_amount,
+            cost_currency,
+            performed_date,
+            provider_name,
+            notes
+          `
           )
           .eq('asset_id', assetId)
-          .order('completed_at', {
-            ascending: false,
-          });
+          .order('performed_date', { ascending: false });
 
-      setUpgrades(upgradesData || []);
+        if (upgradesData) {
+          setUpgrades(upgradesData as Upgrade[]);
+        }
 
-      const { data: servicesData } =
-        await supabase
+        // Services
+        const { data: servicesData } = await supabase
           .from('asset_services')
           .select(
             `
-          id,
-          asset_id,
-          title,
-          description,
-          cost_amount,
-          cost_currency,
-          service_date,
-          provider_name,
-          notes,
-          created_at
-        `
+            id,
+            asset_id,
+            service_type,
+            description,
+            cost_amount,
+            cost_currency,
+            performed_date,
+            provider_name,
+            notes
+          `
           )
           .eq('asset_id', assetId)
-          .order('service_date', {
-            ascending: false,
-          });
+          .order('performed_date', { ascending: false });
 
-      setServices(servicesData || []);
+        if (servicesData) {
+          setServices(servicesData as Service[]);
+        }
 
-      const { data: documentsData } =
-        await supabase
+        // Documents (asset-level only)
+        const { data: docsData } = await supabase
           .from('asset_documents')
           .select(
             `
-          id,
-          asset_id,
-          asset_upgrade_id,
-          asset_service_id,
-          bucket,
-          path,
-          file_name,
-          file_type,
-          uploaded_at,
-          created_at
-        `
+            id,
+            asset_id,
+            document_type,
+            file_url,
+            notes,
+            uploaded_at,
+            upgrade_id,
+            service_id
+          `
           )
           .eq('asset_id', assetId)
-          .order('uploaded_at', {
-            ascending: false,
-          });
+          .is('upgrade_id', null)
+          .is('service_id', null)
+          .order('uploaded_at', { ascending: false });
 
-      setDocuments(documentsData || []);
+        if (docsData) {
+          setDocuments(docsData as Document[]);
+        }
 
-      setLoading(false);
+        // Valuations (simple history)
+        const { data: valuationsData } = await supabase
+          .from('valuations')
+          .select(
+            `
+            id,
+            valuation_source,
+            suggested_value,
+            currency,
+            created_at
+          `
+          )
+          .eq('asset_id', assetId)
+          .order('created_at', { ascending: false });
+
+        if (valuationsData) {
+          setValuations(valuationsData as Valuation[]);
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Something went wrong loading this asset.');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    load();
+    if (assetId) {
+      loadData();
+    }
   }, [assetId, router]);
 
-  const handleRunRoundImport = async () => {
+  const handleAddUpgrade = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!asset) return;
+    if (!upgradeTitle.trim()) return;
 
-    setRunningImport(true);
+    setSavingUpgrade(true);
     setError(null);
 
     try {
@@ -550,98 +418,154 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const base =
-        asset.current_estimated_value ??
-        asset.purchase_price;
+      const costNumber =
+        upgradeCost.trim() === '' ? null : Number(upgradeCost);
 
-      if (!base) {
-        setError(
-          'Add a purchase price or current estimate before running Round Import.'
-        );
-        setRunningImport(false);
-        return;
-      }
-
-      const suggestedValue = Math.round(
-        base * 1.03
-      );
-      const currency =
-        asset.estimate_currency ||
-        asset.purchase_currency ||
-        'GBP';
-
-      const { error: insertError } =
-        await supabase
-          .from('valuations')
-          .insert({
-            asset_id: asset.id,
-            requested_by: user.id,
-            valuation_source:
-              'Round Import (demo)',
-            suggested_value: suggestedValue,
-            currency,
-            raw_data_json: {
-              placeholder: true,
-              rule: '+3%',
-              note: 'Demo Round Import placeholder – not live market data yet',
-            } as any,
-          } as any);
-
-      if (insertError) {
-        console.error(insertError);
-        setError(
-          'Could not create Round Import valuation.'
-        );
-        setRunningImport(false);
-        return;
-      }
-
-      const {
-        data: valuationsData,
-        error: reloadError,
-      } = await supabase
-        .from('valuations')
+      const { data, error } = await supabase
+        .from('asset_upgrades')
+        .insert({
+          asset_id: asset.id,
+          // owner_id is handled in the table, or via RLS copying from assets
+          location: asset.city || null,
+          title: upgradeTitle || null,
+          description: upgradeDescription || null,
+          cost_amount: costNumber,
+          cost_currency: upgradeCurrency || 'GBP',
+          performed_date: upgradeDate || null,
+          provider_name: upgradeProvider || null,
+          notes: null,
+        })
         .select(
           `
           id,
           asset_id,
-          valuation_source,
-          suggested_value,
-          currency,
-          new_price_min,
-          new_price_max,
-          used_price_min,
-          used_price_max,
-          raw_data_json,
-          created_at
+          title,
+          description,
+          cost_amount,
+          cost_currency,
+          performed_date,
+          provider_name,
+          notes
         `
         )
-        .eq('asset_id', asset.id)
-        .order('created_at', {
-          ascending: false,
-        });
+        .single();
 
-      if (!reloadError && valuationsData) {
-        setValuations(valuationsData);
+      if (error || !data) {
+        console.error(error);
+        setError('Could not save upgrade.');
+        setSavingUpgrade(false);
+        return;
       }
+
+      setUpgrades((prev) => [data as Upgrade, ...prev]);
+
+      // Reset form
+      setUpgradeTitle('');
+      setUpgradeDescription('');
+      setUpgradeDate('');
+      setUpgradeCost('');
+      setUpgradeCurrency('GBP');
+      setUpgradeProvider('');
     } catch (err) {
       console.error(err);
-      setError(
-        'Something went wrong while running Round Import.'
-      );
+      setError('Something went wrong saving the upgrade.');
     } finally {
-      setRunningImport(false);
+      setSavingUpgrade(false);
     }
   };
 
-  const handleUploadDocument = async (
-    scope: 'asset' | 'upgrade' | 'service',
-    targetId: string | null,
-    event: ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file || !asset) return;
+  const handleAddService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!asset) return;
+    if (!serviceType.trim()) return;
 
+    setSavingService(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const costNumber =
+        serviceCost.trim() === '' ? null : Number(serviceCost);
+
+      const { data, error } = await supabase
+        .from('asset_services')
+        .insert({
+          asset_id: asset.id,
+          service_type: serviceType || null,
+          description: serviceDescription || null,
+          cost_amount: costNumber,
+          cost_currency: serviceCurrency || 'GBP',
+          performed_date: serviceDate || null,
+          provider_name: serviceProvider || null,
+          notes: null,
+        })
+        .select(
+          `
+          id,
+          asset_id,
+          service_type,
+          description,
+          cost_amount,
+          cost_currency,
+          performed_date,
+          provider_name,
+          notes
+        `
+        )
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError('Could not save service.');
+        setSavingService(false);
+        return;
+      }
+
+      setServices((prev) => [data as Service, ...prev]);
+
+      // Reset form
+      setServiceType('');
+      setServiceDescription('');
+      setServiceDate('');
+      setServiceCost('');
+      setServiceCurrency('GBP');
+      setServiceProvider('');
+    } catch (err) {
+      console.error(err);
+      setError('Something went wrong saving the service.');
+    } finally {
+      setSavingService(false);
+    }
+  };
+
+  const handleDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setDocFile(file);
+  };
+
+  const handleDocDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) setDocFile(file);
+  };
+
+  const handleDocDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleAddDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!asset || !docFile) return;
+
+    setSavingDoc(true);
     setError(null);
 
     try {
@@ -655,99 +579,68 @@ export default function AssetDetailPage() {
       }
 
       const bucket = 'documents';
-      const safeName = file.name.replace(
-        /[^\w.\-]+/g,
-        '_'
-      );
-      const filePath = `${user.id}/${asset.id}/${Date.now()}-${safeName}`;
+      const safeName = docFile.name.replace(/[^\w.\-]+/g, '_');
+      const path = `${user.id}/${asset.id}/${Date.now()}-${safeName}`;
 
-      const { error: uploadError } =
-        await supabase.storage
-          .from(bucket)
-          .upload(filePath, file);
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, docFile);
 
       if (uploadError) {
         console.error(uploadError);
         setError('Could not upload document.');
+        setSavingDoc(false);
         return;
       }
 
-      const payload: any = {
-        asset_id: asset.id,
-        owner_id: user.id,
-        bucket,
-        path: filePath,
-        file_name: file.name,
-        file_type: file.type || null,
-      };
+      const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(path);
+      const fileUrl = publicUrlData?.publicUrl ?? null;
 
-      if (scope === 'upgrade') {
-        payload.asset_upgrade_id = targetId;
-      } else if (scope === 'service') {
-        payload.asset_service_id = targetId;
-      }
-
-      const { error: docError } =
-        await supabase
-          .from('asset_documents')
-          .insert(payload);
-
-      if (docError) {
-        console.error(docError);
-        setError('Could not save document.');
-        return;
-      }
-
-      const {
-        data: documentsData,
-        error: reloadError,
-      } = await supabase
+      const { data, error: insertError } = await supabase
         .from('asset_documents')
+        .insert({
+          asset_id: asset.id,
+          document_type: docType || 'general',
+          file_url: fileUrl,
+          notes: docNotes || null,
+          upgrade_id: null,
+          service_id: null,
+        })
         .select(
           `
           id,
           asset_id,
-          asset_upgrade_id,
-          asset_service_id,
-          bucket,
-          path,
-          file_name,
-          file_type,
+          document_type,
+          file_url,
+          notes,
           uploaded_at,
-          created_at
+          upgrade_id,
+          service_id
         `
         )
-        .eq('asset_id', asset.id)
-        .order('uploaded_at', {
-          ascending: false,
-        });
+        .single();
 
-      if (!reloadError && documentsData) {
-        setDocuments(documentsData);
+      if (insertError || !data) {
+        console.error(insertError);
+        setError('Could not save document.');
+        setSavingDoc(false);
+        return;
       }
 
-      event.target.value = '';
+      setDocuments((prev) => [data as Document, ...prev]);
+      setDocFile(null);
+      setDocNotes('');
+      setDocType('general');
     } catch (err) {
       console.error(err);
-      setError(
-        'Something went wrong while uploading.'
-      );
+      setError('Something went wrong saving the document.');
+    } finally {
+      setSavingDoc(false);
     }
   };
 
-  const handleBack = () => {
-    router.push('/dashboard');
-  };
-
-  const handleEdit = () => {
-    if (!assetId) return;
-    router.push(`/assets/${assetId}/edit`);
-  };
-
   if (loading) {
-    return <div className="p-6">
-      Loading asset…
-    </div>;
+    return <div className="p-6">Loading asset…</div>;
   }
 
   if (!asset) {
@@ -758,7 +651,7 @@ export default function AssetDetailPage() {
         </p>
         <button
           className="rounded border px-3 py-1.5 text-sm"
-          onClick={handleBack}
+          onClick={() => router.push('/dashboard')}
         >
           Back to portfolio
         </button>
@@ -766,30 +659,40 @@ export default function AssetDetailPage() {
     );
   }
 
-  const identity = computeIdentity(asset);
-  const roundReady = isRoundReady(asset);
-  const roundNextSteps = getRoundNextSteps(asset);
-  const categoryName = getCategoryName(asset);
-  const isHome = isHomeCategory(asset);
+  const identityLevel = computeIdentityLevel(asset);
+  const identityLabel =
+    identityLevel === 'strong'
+      ? 'Strong identity'
+      : identityLevel === 'good'
+      ? 'Good identity'
+      : identityLevel === 'basic'
+      ? 'Basic identity'
+      : 'Identity unclear';
 
-  const assetLevelDocuments = documents.filter(
-    (d) => !d.asset_upgrade_id && !d.asset_service_id
-  );
+  const roundReady = computeRoundReady(asset);
+  const isHome = isHomeCategoryName(asset.category?.name);
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Top bar */}
-      <div className="flex items-center justify-between">
-        <button
-          className="text-sm text-slate-600 hover:text-slate-900"
-          onClick={handleBack}
-        >
-          ← Back to portfolio
-        </button>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4 p-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">{asset.title || 'Untitled asset'}</h1>
+          <p className="text-xs text-slate-500">
+            {asset.category?.name || 'No category'} ·{' '}
+            {asset.status ? asset.status.replace('_', ' ') : 'status unknown'}
+          </p>
+        </div>
+        <div className="flex gap-2">
           <button
             className="rounded border px-3 py-1.5 text-sm"
-            onClick={handleEdit}
+            onClick={() => router.push('/dashboard')}
+          >
+            Back to portfolio
+          </button>
+          <button
+            className="rounded bg-black px-4 py-1.5 text-sm font-medium text-white"
+            onClick={() => router.push(`/assets/${asset.id}/edit`)}
           >
             Edit asset
           </button>
@@ -802,511 +705,703 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Asset overview */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2 rounded border bg-white p-4 text-sm">
-          <p className="text-xs font-medium text-slate-500">
-            Asset
+      {/* Identity + Round readiness */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2 rounded border bg-white p-4">
+          <p className="text-xs font-semibold text-slate-600">Identity</p>
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                identityLevel === 'strong'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : identityLevel === 'good'
+                  ? 'bg-sky-100 text-sky-800'
+                  : identityLevel === 'basic'
+                  ? 'bg-slate-100 text-slate-700'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+              title={identityLabel}
+            >
+              {identityLabel}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Round needs a clear identity to compare this asset properly – think of this as
+            “does Round really know what this is?”.
           </p>
-          <h1 className="text-lg font-semibold">
-            {asset.title}
-          </h1>
-          <p className="text-xs text-slate-600">
-            {categoryName !== '—' && (
-              <span className="mr-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
-                {categoryName}
-              </span>
-            )}
-            {asset.city && asset.country && (
-              <span className="text-slate-500">
-                {asset.city}, {asset.country}
-              </span>
-            )}
+        </div>
+
+        <div className="space-y-2 rounded border bg-white p-4">
+          <p className="text-xs font-semibold text-slate-600">Round readiness</p>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              roundReady.ready
+                ? 'bg-emerald-100 text-emerald-800'
+                : roundReady.statusLabel === 'Almost Round Ready'
+                ? 'bg-sky-100 text-sky-800'
+                : 'bg-amber-100 text-amber-800'
+            }`}
+            title={roundReady.explanation}
+          >
+            {roundReady.statusLabel}
+          </span>
+          <p className="text-[11px] text-slate-500">
+            Hover the pill for a hint on what Round still needs. This will eventually drive
+            live, AI-powered valuations.
           </p>
-          <p className="text-xs text-slate-500">
-            Status:{' '}
-            <span className="capitalize">
-              {asset.status ?? 'unknown'}
+        </div>
+
+        <div className="space-y-2 rounded border bg-white p-4">
+          <p className="text-xs font-semibold text-slate-600">Value snapshot</p>
+          <p className="text-sm">
+            Purchase:{' '}
+            <span className="font-semibold">
+              {formatMoney(asset.purchase_price, asset.purchase_currency)}
             </span>
           </p>
-          {!isHome && (
-            <div className="mt-3 space-y-1 text-xs text-slate-700">
-              <p>
-                <span className="font-medium">
-                  Brand:
-                </span>{' '}
-                {asset.brand || '—'}
+          <p className="text-sm">
+            Current estimate:{' '}
+            <span className="font-semibold">
+              {formatMoney(
+                asset.current_estimated_value,
+                asset.estimate_currency || asset.purchase_currency
+              )}
+            </span>
+          </p>
+          <p className="text-[11px] text-slate-500">
+            For now this is manual. In the full Round vision, this will be updated
+            automatically in the background.
+          </p>
+        </div>
+      </div>
+
+      {/* Identity details */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2 rounded border bg-white p-4">
+          <p className="text-xs font-semibold text-slate-600">
+            {isHome ? 'Home details' : 'Asset details'}
+          </p>
+
+          {isHome ? (
+            <>
+              <dl className="space-y-1 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Address / property</dt>
+                  <dd className="text-right">
+                    {asset.title || <span className="text-slate-400">Not set</span>}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">City</dt>
+                  <dd className="text-right">
+                    {asset.city || <span className="text-slate-400">Not set</span>}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Country</dt>
+                  <dd className="text-right">
+                    {asset.country || <span className="text-slate-400">Not set</span>}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Your home is treated as a container for upgrades, services and documents –
+                like a digital service book.
               </p>
-              <p>
-                <span className="font-medium">
-                  Model:
-                </span>{' '}
-                {asset.model_name || '—'}
+            </>
+          ) : (
+            <>
+              <dl className="space-y-1 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Brand</dt>
+                  <dd className="text-right">
+                    {asset.brand || <span className="text-slate-400">Not set</span>}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Model</dt>
+                  <dd className="text-right">
+                    {asset.model_name || <span className="text-slate-400">Not set</span>}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Serial / unique ID</dt>
+                  <dd className="text-right">
+                    {asset.serial_number || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Brand, model and serial give Round an exact match against catalogues and
+                resale listings.
               </p>
-              <p>
-                <span className="font-medium">
-                  Serial / ID:
-                </span>{' '}
-                {asset.serial_number || '—'}
-              </p>
-            </div>
+            </>
           )}
         </div>
 
-        <div className="space-y-3 rounded border bg-white p-4 text-sm">
-          <p className="text-xs font-medium text-slate-500">
-            Value snapshot
+        <div className="space-y-2 rounded border bg-white p-4">
+          <p className="text-xs font-semibold text-slate-600">
+            Link & notes
           </p>
-          <div className="flex flex-col gap-2">
-            <p className="text-sm">
-              Purchase:{' '}
-              <span className="font-semibold">
-                {formatMoney(
-                  asset.purchase_price,
-                  asset.purchase_currency
+          <dl className="space-y-1 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">
+                {isHome ? 'Property URL' : 'Purchase URL'}
+              </dt>
+              <dd className="text-right break-all">
+                {asset.purchase_url ? (
+                  <a
+                    href={asset.purchase_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-sky-700 underline"
+                  >
+                    {asset.purchase_url}
+                  </a>
+                ) : (
+                  <span className="text-slate-400">Not set</span>
                 )}
-              </span>{' '}
-              {asset.purchase_date && (
-                <span className="text-xs text-slate-500">
-                  (on {formatDate(asset.purchase_date)})
-                </span>
-              )}
-            </p>
-            <p className="text-sm">
-              Current estimate:{' '}
-              <span className="font-semibold">
-                {formatMoney(
-                  asset.current_estimated_value,
-                  asset.estimate_currency
-                )}
-              </span>
-            </p>
-          </div>
-
-          <div className="mt-2 space-y-2 text-xs">
-            <div>
-              <span className="mr-2 text-xs font-medium">
-                Identity:
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${identity.colorClass}`}
-                title={identity.tooltip}
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {identity.shortLabel}
-              </span>
-              {roundReady && (
-                <span
-                  className="ml-2 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800"
-                  title="Round-Ready: Round has enough identity and context to start automated valuations."
-                >
-                  ✨ Round-Ready
-                </span>
-              )}
+              </dd>
             </div>
-            <p className="text-xs text-slate-600">
-              For now, these values use simple placeholder
-              logic – not live market data yet.
-            </p>
-          </div>
-
-          <div className="pt-2">
-            <button
-              onClick={handleRunRoundImport}
-              disabled={runningImport}
-              className="rounded bg-black px-4 py-2 text-xs font-medium text-white disabled:bg-slate-500"
-            >
-              {runningImport
-                ? 'Running Round Import…'
-                : 'Run Round Import (demo)'}
-            </button>
-          </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">Receipt</dt>
+              <dd className="text-right">
+                {asset.receipt_url ? (
+                  <a
+                    href={asset.receipt_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-sky-700 underline"
+                  >
+                    View receipt
+                  </a>
+                ) : (
+                  <span className="text-slate-400">Not uploaded</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+          {asset.notes_internal && (
+            <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+              <p className="mb-1 font-medium text-slate-700">
+                Notes for Round
+              </p>
+              <p className="whitespace-pre-wrap">{asset.notes_internal}</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* What Round needs next */}
-      <div className="rounded border bg-amber-50 p-4 text-sm">
-        <p className="mb-1 text-sm font-medium">
-          What Round needs next
-        </p>
-        <p className="mb-2 text-xs text-slate-700">
-          A quick checklist of what to add so Round can
-          confidently keep this asset valued over time.
-        </p>
-        <ul className="list-disc space-y-1 pl-5">
-          {roundNextSteps.map((hint, idx) => (
-            <li
-              key={idx}
-              className="text-xs text-slate-800"
-            >
-              {hint}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Valuation history */}
-      <div className="space-y-3 rounded border bg-white p-4 text-sm">
-        <div className="flex items-center justify-between">
+      {/* Upgrades & improvements */}
+      <div className="space-y-3 rounded border bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-medium">
-              Valuation history
+            <p className="text-sm font-semibold">
+              Upgrades & improvements
             </p>
-            <p className="text-xs text-slate-600">
-              Manual entries and Round Import demo valuations
-              for this asset.
+            <p className="text-[11px] text-slate-500">
+              Track investments you&apos;ve made into this asset – new kitchen,
+              refit, major upgrades.
             </p>
           </div>
-          <button
-            onClick={handleRunRoundImport}
-            disabled={runningImport}
-            className="rounded border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
-          >
-            {runningImport
-              ? 'Running Round Import…'
-              : 'Run Round Import (demo)'}
-          </button>
         </div>
-
-        {valuations.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            No valuations recorded yet.
-          </p>
-        ) : (
-          <table className="mt-2 w-full border-collapse text-xs">
-            <thead>
-              <tr className="border-b">
-                <th className="py-1 text-left">
-                  Date
-                </th>
-                <th className="py-1 text-left">
-                  Source
-                </th>
-                <th className="py-1 text-right">
-                  Suggested value
-                </th>
-                <th className="py-1 text-left">
-                  Notes
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {valuations.map((v) => (
-                <tr
-                  key={v.id}
-                  className="border-b align-top"
-                >
-                  <td className="py-1">
-                    {formatDate(v.created_at)}
-                  </td>
-                  <td className="py-1">
-                    {v.valuation_source ||
-                      'Manual'}
-                  </td>
-                  <td className="py-1 text-right">
-                    {formatMoney(
-                      v.suggested_value,
-                      v.currency
-                    )}
-                  </td>
-                  <td className="py-1 text-xs text-slate-600">
-                    {v.raw_data_json?.placeholder
-                      ? 'Demo placeholder valuation (not live market data).'
-                      : ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Upgrades & Improvements */}
-      <div className="space-y-3 rounded border bg-white p-4 text-sm">
-        <p className="text-sm font-medium">
-          Upgrades & Improvements
-        </p>
-        <p className="text-xs text-slate-600">
-          Track investments that enhance this asset – useful
-          for both value and service history.
-        </p>
 
         {upgrades.length === 0 ? (
           <p className="text-xs text-slate-500">
             No upgrades recorded yet.
           </p>
         ) : (
-          <div className="space-y-3">
-            {upgrades.map((u) => {
-              const upgradeDocs = documents.filter(
-                (d) => d.asset_upgrade_id === u.id
-              );
-              return (
-                <div
-                  key={u.id}
-                  className="rounded border bg-slate-50 p-3 text-xs"
-                >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <div>
-                      <p className="font-medium">
-                        {u.title}
-                      </p>
-                      <p className="text-slate-600">
-                        {u.description}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">
-                        {formatMoney(
-                          u.cost_amount,
-                          u.cost_currency
-                        )}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {u.completed_at
-                          ? formatDate(
-                              u.completed_at
-                            )
-                          : 'Date unknown'}
-                      </p>
-                    </div>
-                  </div>
-                  {u.supplier_name && (
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Supplier: {u.supplier_name}
+          <div className="space-y-2 text-sm">
+            {upgrades.map((u) => (
+              <div
+                key={u.id}
+                className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
+              >
+                <div>
+                  <p className="font-medium">
+                    {u.title || 'Upgrade'}
+                  </p>
+                  {u.description && (
+                    <p className="text-xs text-slate-600">
+                      {u.description}
                     </p>
                   )}
-                  {u.notes && (
-                    <p className="mt-1 text-[11px] text-slate-600">
-                      {u.notes}
-                    </p>
-                  )}
-
-                  <div className="mt-2 space-y-1">
-                    <p className="text-[11px] font-medium text-slate-700">
-                      Documents
-                    </p>
-                    {upgradeDocs.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">
-                        No documents yet.
-                      </p>
-                    ) : (
-                      <ul className="list-disc space-y-0.5 pl-5">
-                        {upgradeDocs.map((d) => (
-                          <li
-                            key={d.id}
-                            className="text-[11px]"
-                          >
-                            <a
-                              href={supabase.storage
-                                .from(d.bucket)
-                                .getPublicUrl(
-                                  d.path
-                                ).data.publicUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-slate-800 underline"
-                            >
-                              {d.file_name ||
-                                'Document'}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
+                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                    <span>
+                      Date: {formatDate(u.performed_date)}
+                    </span>
+                    <span>
+                      Cost:{' '}
+                      {formatMoney(
+                        u.cost_amount,
+                        u.cost_currency
+                      )}
+                    </span>
+                    {u.provider_name && (
+                      <span>Provider: {u.provider_name}</span>
                     )}
-                    <div className="mt-1">
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50">
-                        Add document
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) =>
-                            handleUploadDocument(
-                              'upgrade',
-                              u.id,
-                              e
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
+
+        {/* Add upgrade form */}
+        <form
+          onSubmit={handleAddUpgrade}
+          className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
+        >
+          <p className="font-medium text-slate-700">
+            Add an upgrade
+          </p>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Title
+              </label>
+              <input
+                type="text"
+                value={upgradeTitle}
+                onChange={(e) =>
+                  setUpgradeTitle(e.target.value)
+                }
+                required
+                placeholder={
+                  isHome
+                    ? 'e.g. New kitchen, Corston switches'
+                    : 'e.g. Refurbished upholstery'
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Provider
+              </label>
+              <input
+                type="text"
+                value={upgradeProvider}
+                onChange={(e) =>
+                  setUpgradeProvider(e.target.value)
+                }
+                placeholder="e.g. Corston, local builder"
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Date
+              </label>
+              <input
+                type="date"
+                value={upgradeDate}
+                onChange={(e) =>
+                  setUpgradeDate(e.target.value)
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Cost
+              </label>
+              <input
+                type="number"
+                value={upgradeCost}
+                onChange={(e) =>
+                  setUpgradeCost(e.target.value)
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Currency
+              </label>
+              <input
+                type="text"
+                value={upgradeCurrency}
+                onChange={(e) =>
+                  setUpgradeCurrency(e.target.value)
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-600">
+              Description
+            </label>
+            <textarea
+              value={upgradeDescription}
+              onChange={(e) =>
+                setUpgradeDescription(e.target.value)
+              }
+              rows={2}
+              placeholder="Scope of the upgrade, key details, etc."
+              className="w-full rounded border px-2 py-1.5 text-xs"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingUpgrade}
+              className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+            >
+              {savingUpgrade
+                ? 'Saving…'
+                : 'Add upgrade'}
+            </button>
+          </div>
+        </form>
       </div>
 
-      {/* Home Service History */}
-      <div className="space-y-3 rounded border bg-white p-4 text-sm">
-        <p className="text-sm font-medium">
-          Home Service History
-        </p>
-        <p className="text-xs text-slate-600">
-          Boiler services, safety checks, inspections and more
-          – all in one place.
-        </p>
+      {/* Home service history */}
+      <div className="space-y-3 rounded border bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">
+              Home service history
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Boiler services, chimney sweep, electrical checks – your
+              “service book” for this asset.
+            </p>
+          </div>
+        </div>
 
         {services.length === 0 ? (
           <p className="text-xs text-slate-500">
             No services recorded yet.
           </p>
         ) : (
-          <div className="space-y-3">
-            {services.map((s) => {
-              const serviceDocs = documents.filter(
-                (d) => d.asset_service_id === s.id
-              );
-              return (
-                <div
-                  key={s.id}
-                  className="rounded border bg-slate-50 p-3 text-xs"
-                >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <div>
-                      <p className="font-medium">
-                        {s.title}
-                      </p>
-                      <p className="text-slate-600">
-                        {s.description}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">
-                        {formatMoney(
-                          s.cost_amount,
-                          s.cost_currency
-                        )}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {s.service_date
-                          ? formatDate(
-                              s.service_date
-                            )
-                          : 'Date unknown'}
-                      </p>
-                    </div>
-                  </div>
-                  {s.provider_name && (
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Provider: {s.provider_name}
+          <div className="space-y-2 text-sm">
+            {services.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
+              >
+                <div>
+                  <p className="font-medium">
+                    {s.service_type || 'Service'}
+                  </p>
+                  {s.description && (
+                    <p className="text-xs text-slate-600">
+                      {s.description}
                     </p>
                   )}
-                  {s.notes && (
-                    <p className="mt-1 text-[11px] text-slate-600">
-                      {s.notes}
-                    </p>
-                  )}
-
-                  <div className="mt-2 space-y-1">
-                    <p className="text-[11px] font-medium text-slate-700">
-                      Documents
-                    </p>
-                    {serviceDocs.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">
-                        No documents yet.
-                      </p>
-                    ) : (
-                      <ul className="list-disc space-y-0.5 pl-5">
-                        {serviceDocs.map((d) => (
-                          <li
-                            key={d.id}
-                            className="text-[11px]"
-                          >
-                            <a
-                              href={supabase.storage
-                                .from(d.bucket)
-                                .getPublicUrl(
-                                  d.path
-                                ).data.publicUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-slate-800 underline"
-                            >
-                              {d.file_name ||
-                                'Document'}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
+                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                    <span>
+                      Date: {formatDate(s.performed_date)}
+                    </span>
+                    <span>
+                      Cost:{' '}
+                      {formatMoney(
+                        s.cost_amount,
+                        s.cost_currency
+                      )}
+                    </span>
+                    {s.provider_name && (
+                      <span>Provider: {s.provider_name}</span>
                     )}
-                    <div className="mt-1">
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50">
-                        Add document
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) =>
-                            handleUploadDocument(
-                              'service',
-                              s.id,
-                              e
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
+
+        {/* Add service form */}
+        <form
+          onSubmit={handleAddService}
+          className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
+        >
+          <p className="font-medium text-slate-700">
+            Add a service
+          </p>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Service type
+              </label>
+              <input
+                type="text"
+                value={serviceType}
+                onChange={(e) =>
+                  setServiceType(e.target.value)
+                }
+                required
+                placeholder="e.g. Boiler service, chimney sweep"
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Provider
+              </label>
+              <input
+                type="text"
+                value={serviceProvider}
+                onChange={(e) =>
+                  setServiceProvider(
+                    e.target.value
+                  )
+                }
+                placeholder="e.g. British Gas"
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Date
+              </label>
+              <input
+                type="date"
+                value={serviceDate}
+                onChange={(e) =>
+                  setServiceDate(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Cost
+              </label>
+              <input
+                type="number"
+                value={serviceCost}
+                onChange={(e) =>
+                  setServiceCost(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Currency
+              </label>
+              <input
+                type="text"
+                value={serviceCurrency}
+                onChange={(e) =>
+                  setServiceCurrency(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] text-slate-600">
+              Description
+            </label>
+            <textarea
+              value={serviceDescription}
+              onChange={(e) =>
+                setServiceDescription(
+                  e.target.value
+                )
+              }
+              rows={2}
+              placeholder="What was done, any findings, recommendations…"
+              className="w-full rounded border px-2 py-1.5 text-xs"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingService}
+              className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+            >
+              {savingService
+                ? 'Saving…'
+                : 'Add service'}
+            </button>
+          </div>
+        </form>
       </div>
 
-      {/* Asset-level documents */}
-      <div className="space-y-3 rounded border bg-white p-4 text-sm">
-        <p className="text-sm font-medium">
-          Key documents for this asset
-        </p>
-        <p className="text-xs text-slate-600">
-          Store surveys, certificates, manuals or other
-          documents directly against the asset.
-        </p>
+      {/* Key documents (asset-level) */}
+      <div className="space-y-3 rounded border bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">
+              Key documents
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Store surveys, certificates, valuations and other PDFs
+              against this asset.
+            </p>
+          </div>
+        </div>
 
-        {assetLevelDocuments.length === 0 ? (
+        {documents.length === 0 ? (
           <p className="text-xs text-slate-500">
             No documents uploaded yet.
           </p>
         ) : (
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
-            {assetLevelDocuments.map((d) => (
-              <li key={d.id}>
-                <a
-                  href={supabase.storage
-                    .from(d.bucket)
-                    .getPublicUrl(
-                      d.path
-                    ).data.publicUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-slate-800 underline"
-                >
-                  {d.file_name || 'Document'}
-                </a>
+          <ul className="space-y-2 text-sm">
+            {documents.map((d) => (
+              <li
+                key={d.id}
+                className="flex items-center justify-between rounded border bg-slate-50 p-3"
+              >
+                <div>
+                  <p className="font-medium">
+                    {d.document_type || 'Document'}
+                  </p>
+                  {d.notes && (
+                    <p className="text-xs text-slate-600">
+                      {d.notes}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Uploaded:{' '}
+                    {formatDate(d.uploaded_at)}
+                  </p>
+                </div>
+                {d.file_url && (
+                  <a
+                    href={d.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-sky-700 underline"
+                  >
+                    Open
+                  </a>
+                )}
               </li>
             ))}
           </ul>
         )}
 
-        <div className="mt-2">
-          <label className="inline-flex cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50">
-            Add document to asset
+        {/* Add document */}
+        <form
+          onSubmit={handleAddDocument}
+          className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
+        >
+          <p className="font-medium text-slate-700">
+            Add a document
+          </p>
+          <div className="grid gap-2 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Type
+              </label>
+              <input
+                type="text"
+                value={docType}
+                onChange={(e) =>
+                  setDocType(e.target.value)
+                }
+                placeholder="e.g. Survey, valuation, certificate"
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-[11px] text-slate-600">
+                Notes
+              </label>
+              <input
+                type="text"
+                value={docNotes}
+                onChange={(e) =>
+                  setDocNotes(e.target.value)
+                }
+                placeholder="Short description (optional)"
+                className="w-full rounded border px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+
+          <div
+            onDragOver={handleDocDragOver}
+            onDrop={handleDocDrop}
+            className="mt-2 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center text-[11px] text-slate-600"
+          >
+            <p>
+              Drag &amp; drop a PDF or image
+              here,
+              <br />
+              or click to choose from your
+              computer.
+            </p>
             <input
               type="file"
-              className="hidden"
-              onChange={(e) =>
-                handleUploadDocument(
-                  'asset',
-                  null,
-                  e
-                )
-              }
+              accept="application/pdf,image/*"
+              className="mt-2 text-xs"
+              onChange={handleDocFileChange}
             />
-          </label>
-        </div>
+            {docFile && (
+              <p className="mt-2 text-[11px] text-slate-700">
+                Selected: {docFile.name}
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingDoc || !docFile}
+              className="mt-2 rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+            >
+              {savingDoc
+                ? 'Saving…'
+                : 'Add document'}
+            </button>
+          </div>
+        </form>
       </div>
+
+      {/* Valuation history (read-only) */}
+      {valuations.length > 0 && (
+        <div className="space-y-3 rounded border bg-white p-4">
+          <p className="text-sm font-semibold">
+            Valuation history
+          </p>
+          <p className="text-[11px] text-slate-500">
+            Early experiments in how Round might track and explain changes
+            in value over time.
+          </p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {valuations.map((v) => (
+              <li
+                key={v.id}
+                className="flex items-center justify-between rounded border bg-slate-50 p-2"
+              >
+                <div>
+                  <p className="font-medium">
+                    {v.valuation_source ||
+                      'Valuation'}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {formatDate(v.created_at)}
+                  </p>
+                </div>
+                <div className="text-right text-sm">
+                  {formatMoney(
+                    v.suggested_value,
+                    v.currency
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
