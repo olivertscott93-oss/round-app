@@ -1,6 +1,6 @@
 'use client';
 
-import {
+import React, {
   useEffect,
   useState,
   ChangeEvent,
@@ -9,66 +9,13 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-type Category = {
-  id: string;
-  name: string | null;
-};
+type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-type Asset = {
-  id: string;
-  title: string;
-  status: string | null;
-  brand: string | null;
-  model_name: string | null;
-  serial_number: string | null;
-  purchase_price: number | null;
-  purchase_currency: string | null;
-  purchase_date: string | null;
-  current_estimated_value: number | null;
-  estimate_currency: string | null;
-  purchase_url: string | null;
-  receipt_url: string | null;
-  notes_internal: string | null;
-  city: string | null;
-  country: string | null;
-  category_id: string | null;
-  category?: Category | null;
-};
-
-type Upgrade = {
-  id: string;
-  asset_id: string;
-  title: string | null;
-  description: string | null;
-  cost_amount: number | null;
-  cost_currency: string | null;
-  performed_date: string | null;
-  provider_name: string | null;
-  notes: string | null;
-};
-
-type Service = {
-  id: string;
-  asset_id: string;
-  service_type: string | null;
-  description: string | null;
-  cost_amount: number | null;
-  cost_currency: string | null;
-  performed_date: string | null;
-  provider_name: string | null;
-  notes: string | null;
-};
-
-type Document = {
-  id: string;
-  asset_id: string;
-  document_type: string | null;
-  file_url: string | null;
-  notes: string | null;
-  uploaded_at: string | null;
-  upgrade_id: string | null;
-  service_id: string | null;
-};
+// For now keep these very loose to avoid TS/Supabase shape mismatches
+type Asset = any;
+type Upgrade = any;
+type Service = any;
+type AssetDocument = any;
 
 type Valuation = {
   id: string;
@@ -78,19 +25,23 @@ type Valuation = {
   created_at: string;
 };
 
-type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
+function getCategoryName(asset: Asset | null): string | null {
+  if (!asset) return null;
+  const cat = asset.category;
+  if (!cat) return null;
+
+  // Supabase relationship can return array or single object
+  if (Array.isArray(cat)) {
+    if (!cat[0]) return null;
+    return cat[0].name ?? null;
+  }
+  return cat.name ?? null;
+}
 
 function isHomeCategoryName(name: string | null | undefined): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
-  const keywords = [
-    'home',
-    'house',
-    'property',
-    'flat',
-    'apartment',
-    'real estate',
-  ];
+  const keywords = ['home', 'house', 'property', 'flat', 'apartment', 'real estate'];
   return keywords.some((k) => lower.includes(k));
 }
 
@@ -100,7 +51,14 @@ function formatMoney(
 ): string {
   if (value == null) return '—';
   const cur = currency || 'GBP';
-  const symbol = cur === 'GBP' ? '£' : cur === 'EUR' ? '€' : cur === 'USD' ? '$' : cur + ' ';
+  const symbol =
+    cur === 'GBP'
+      ? '£'
+      : cur === 'EUR'
+      ? '€'
+      : cur === 'USD'
+      ? '$'
+      : cur + ' ';
   return `${symbol}${value.toLocaleString(undefined, {
     maximumFractionDigits: 0,
   })}`;
@@ -118,7 +76,8 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 function computeIdentityLevel(asset: Asset): IdentityLevel {
-  const isHome = isHomeCategoryName(asset.category?.name);
+  const categoryName = getCategoryName(asset);
+  const isHome = isHomeCategoryName(categoryName);
   const hasTitle = !!asset.title;
   const hasCity = !!asset.city;
   const hasCountry = !!asset.country;
@@ -128,7 +87,7 @@ function computeIdentityLevel(asset: Asset): IdentityLevel {
 
   if (isHome) {
     const hasFullAddress = hasTitle && hasCity && hasCountry;
-    const url = asset.purchase_url?.toLowerCase() || '';
+    const url = (asset.purchase_url || '').toLowerCase();
     const isPropUrl = url.includes('zoopla.') || url.includes('rightmove.');
     if (hasFullAddress && isPropUrl) return 'strong';
     if (hasFullAddress || isPropUrl) return 'good';
@@ -137,8 +96,8 @@ function computeIdentityLevel(asset: Asset): IdentityLevel {
   }
 
   if (!hasTitle && !hasBrandOrModel) return 'unknown';
-  if (hasBrandOrModel && asset.category?.name && (hasSerial || hasUrl)) return 'strong';
-  if (hasBrandOrModel && asset.category?.name) return 'good';
+  if (hasBrandOrModel && categoryName && (hasSerial || hasUrl)) return 'strong';
+  if (hasBrandOrModel && categoryName) return 'good';
   if (hasTitle) return 'basic';
   return 'unknown';
 }
@@ -152,9 +111,10 @@ function computeRoundReady(asset: Asset): {
   const hasContext =
     !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
 
-  const isHome = isHomeCategoryName(asset.category?.name);
+  const categoryName = getCategoryName(asset);
+  const isHome = isHomeCategoryName(categoryName);
   const hasFullAddress = !!asset.title && !!asset.city && !!asset.country;
-  const url = asset.purchase_url?.toLowerCase() || '';
+  const url = (asset.purchase_url || '').toLowerCase();
   const isPropUrl = url.includes('zoopla.') || url.includes('rightmove.');
 
   if (isHome) {
@@ -216,38 +176,37 @@ export default function AssetDetailPage() {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<AssetDocument[]>([]);
   const [valuations, setValuations] = useState<Valuation[]>([]);
-
   const [loading, setLoading] = useState(true);
-  const [savingUpgrade, setSavingUpgrade] = useState(false);
-  const [savingService, setSavingService] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // New upgrade form
+  // Add-upgrade form
   const [upgradeTitle, setUpgradeTitle] = useState('');
   const [upgradeDescription, setUpgradeDescription] = useState('');
   const [upgradeDate, setUpgradeDate] = useState('');
   const [upgradeCost, setUpgradeCost] = useState('');
   const [upgradeCurrency, setUpgradeCurrency] = useState('GBP');
   const [upgradeProvider, setUpgradeProvider] = useState('');
+  const [savingUpgrade, setSavingUpgrade] = useState(false);
 
-  // New service form
+  // Add-service form
   const [serviceType, setServiceType] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
   const [serviceDate, setServiceDate] = useState('');
   const [serviceCost, setServiceCost] = useState('');
   const [serviceCurrency, setServiceCurrency] = useState('GBP');
   const [serviceProvider, setServiceProvider] = useState('');
+  const [savingService, setSavingService] = useState(false);
 
-  // Asset-level document upload (kept simple here)
+  // Asset-level doc upload
   const [docFile, setDocFile] = useState<File | null>(null);
   const [docType, setDocType] = useState('general');
   const [docNotes, setDocNotes] = useState('');
   const [savingDoc, setSavingDoc] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
+    const load = async () => {
       setLoading(true);
       setError(null);
 
@@ -302,19 +261,7 @@ export default function AssetDetailPage() {
         // Upgrades
         const { data: upgradesData } = await supabase
           .from('asset_upgrades')
-          .select(
-            `
-            id,
-            asset_id,
-            title,
-            description,
-            cost_amount,
-            cost_currency,
-            performed_date,
-            provider_name,
-            notes
-          `
-          )
+          .select('*')
           .eq('asset_id', assetId)
           .order('performed_date', { ascending: false });
 
@@ -325,19 +272,7 @@ export default function AssetDetailPage() {
         // Services
         const { data: servicesData } = await supabase
           .from('asset_services')
-          .select(
-            `
-            id,
-            asset_id,
-            service_type,
-            description,
-            cost_amount,
-            cost_currency,
-            performed_date,
-            provider_name,
-            notes
-          `
-          )
+          .select('*')
           .eq('asset_id', assetId)
           .order('performed_date', { ascending: false });
 
@@ -345,31 +280,20 @@ export default function AssetDetailPage() {
           setServices(servicesData as Service[]);
         }
 
-        // Documents (asset-level only)
+        // Asset-level documents
         const { data: docsData } = await supabase
           .from('asset_documents')
-          .select(
-            `
-            id,
-            asset_id,
-            document_type,
-            file_url,
-            notes,
-            uploaded_at,
-            upgrade_id,
-            service_id
-          `
-          )
+          .select('*')
           .eq('asset_id', assetId)
           .is('upgrade_id', null)
           .is('service_id', null)
           .order('uploaded_at', { ascending: false });
 
         if (docsData) {
-          setDocuments(docsData as Document[]);
+          setDocuments(docsData as AssetDocument[]);
         }
 
-        // Valuations (simple history)
+        // Valuations
         const { data: valuationsData } = await supabase
           .from('valuations')
           .select(
@@ -396,7 +320,7 @@ export default function AssetDetailPage() {
     };
 
     if (assetId) {
-      loadData();
+      load();
     }
   }, [assetId, router]);
 
@@ -425,29 +349,14 @@ export default function AssetDetailPage() {
         .from('asset_upgrades')
         .insert({
           asset_id: asset.id,
-          // owner_id is handled in the table, or via RLS copying from assets
-          location: asset.city || null,
           title: upgradeTitle || null,
           description: upgradeDescription || null,
           cost_amount: costNumber,
           cost_currency: upgradeCurrency || 'GBP',
           performed_date: upgradeDate || null,
           provider_name: upgradeProvider || null,
-          notes: null,
         })
-        .select(
-          `
-          id,
-          asset_id,
-          title,
-          description,
-          cost_amount,
-          cost_currency,
-          performed_date,
-          provider_name,
-          notes
-        `
-        )
+        .select('*')
         .single();
 
       if (error || !data) {
@@ -459,7 +368,6 @@ export default function AssetDetailPage() {
 
       setUpgrades((prev) => [data as Upgrade, ...prev]);
 
-      // Reset form
       setUpgradeTitle('');
       setUpgradeDescription('');
       setUpgradeDate('');
@@ -505,21 +413,8 @@ export default function AssetDetailPage() {
           cost_currency: serviceCurrency || 'GBP',
           performed_date: serviceDate || null,
           provider_name: serviceProvider || null,
-          notes: null,
         })
-        .select(
-          `
-          id,
-          asset_id,
-          service_type,
-          description,
-          cost_amount,
-          cost_currency,
-          performed_date,
-          provider_name,
-          notes
-        `
-        )
+        .select('*')
         .single();
 
       if (error || !data) {
@@ -531,7 +426,6 @@ export default function AssetDetailPage() {
 
       setServices((prev) => [data as Service, ...prev]);
 
-      // Reset form
       setServiceType('');
       setServiceDescription('');
       setServiceDate('');
@@ -593,7 +487,9 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(path);
+      const { data: publicUrlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(path);
       const fileUrl = publicUrlData?.publicUrl ?? null;
 
       const { data, error: insertError } = await supabase
@@ -606,18 +502,7 @@ export default function AssetDetailPage() {
           upgrade_id: null,
           service_id: null,
         })
-        .select(
-          `
-          id,
-          asset_id,
-          document_type,
-          file_url,
-          notes,
-          uploaded_at,
-          upgrade_id,
-          service_id
-        `
-        )
+        .select('*')
         .single();
 
       if (insertError || !data) {
@@ -627,10 +512,10 @@ export default function AssetDetailPage() {
         return;
       }
 
-      setDocuments((prev) => [data as Document, ...prev]);
+      setDocuments((prev) => [data as AssetDocument, ...prev]);
       setDocFile(null);
-      setDocNotes('');
       setDocType('general');
+      setDocNotes('');
     } catch (err) {
       console.error(err);
       setError('Something went wrong saving the document.');
@@ -646,9 +531,7 @@ export default function AssetDetailPage() {
   if (!asset) {
     return (
       <div className="p-6">
-        <p className="mb-2 text-sm text-red-600">
-          Could not find this asset.
-        </p>
+        <p className="mb-2 text-sm text-red-600">Could not find this asset.</p>
         <button
           className="rounded border px-3 py-1.5 text-sm"
           onClick={() => router.push('/dashboard')}
@@ -659,6 +542,8 @@ export default function AssetDetailPage() {
     );
   }
 
+  const categoryName = getCategoryName(asset);
+  const isHome = isHomeCategoryName(categoryName);
   const identityLevel = computeIdentityLevel(asset);
   const identityLabel =
     identityLevel === 'strong'
@@ -670,16 +555,17 @@ export default function AssetDetailPage() {
       : 'Identity unclear';
 
   const roundReady = computeRoundReady(asset);
-  const isHome = isHomeCategoryName(asset.category?.name);
 
   return (
     <div className="space-y-4 p-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{asset.title || 'Untitled asset'}</h1>
+          <h1 className="text-2xl font-semibold">
+            {asset.title || (isHome ? 'Home' : 'Untitled asset')}
+          </h1>
           <p className="text-xs text-slate-500">
-            {asset.category?.name || 'No category'} ·{' '}
+            {categoryName || 'No category'} ·{' '}
             {asset.status ? asset.status.replace('_', ' ') : 'status unknown'}
           </p>
         </div>
@@ -705,26 +591,24 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Identity + Round readiness */}
+      {/* Identity + Round readiness + values */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">Identity</p>
-          <div className="flex flex-wrap gap-2">
-            <span
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                identityLevel === 'strong'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : identityLevel === 'good'
-                  ? 'bg-sky-100 text-sky-800'
-                  : identityLevel === 'basic'
-                  ? 'bg-slate-100 text-slate-700'
-                  : 'bg-amber-100 text-amber-800'
-              }`}
-              title={identityLabel}
-            >
-              {identityLabel}
-            </span>
-          </div>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              identityLevel === 'strong'
+                ? 'bg-emerald-100 text-emerald-800'
+                : identityLevel === 'good'
+                ? 'bg-sky-100 text-sky-800'
+                : identityLevel === 'basic'
+                ? 'bg-slate-100 text-slate-700'
+                : 'bg-amber-100 text-amber-800'
+            }`}
+            title={identityLabel}
+          >
+            {identityLabel}
+          </span>
           <p className="text-[11px] text-slate-500">
             Round needs a clear identity to compare this asset properly – think of this as
             “does Round really know what this is?”.
@@ -732,7 +616,9 @@ export default function AssetDetailPage() {
         </div>
 
         <div className="space-y-2 rounded border bg-white p-4">
-          <p className="text-xs font-semibold text-slate-600">Round readiness</p>
+          <p className="text-xs font-semibold text-slate-600">
+            Round readiness
+          </p>
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
               roundReady.ready
@@ -752,7 +638,9 @@ export default function AssetDetailPage() {
         </div>
 
         <div className="space-y-2 rounded border bg-white p-4">
-          <p className="text-xs font-semibold text-slate-600">Value snapshot</p>
+          <p className="text-xs font-semibold text-slate-600">
+            Value snapshot
+          </p>
           <p className="text-sm">
             Purchase:{' '}
             <span className="font-semibold">
@@ -775,7 +663,7 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Identity details */}
+      {/* Details */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">
@@ -821,7 +709,9 @@ export default function AssetDetailPage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Model</dt>
                   <dd className="text-right">
-                    {asset.model_name || <span className="text-slate-400">Not set</span>}
+                    {asset.model_name || (
+                      <span className="text-slate-400">Not set</span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -885,9 +775,7 @@ export default function AssetDetailPage() {
           </dl>
           {asset.notes_internal && (
             <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
-              <p className="mb-1 font-medium text-slate-700">
-                Notes for Round
-              </p>
+              <p className="mb-1 font-medium text-slate-700">Notes for Round</p>
               <p className="whitespace-pre-wrap">{asset.notes_internal}</p>
             </div>
           )}
@@ -899,11 +787,11 @@ export default function AssetDetailPage() {
         <div className="flex items-center justify-between gap-2">
           <div>
             <p className="text-sm font-semibold">
-              Upgrades & improvements
+              Upgrades &amp; improvements
             </p>
             <p className="text-[11px] text-slate-500">
-              Track investments you&apos;ve made into this asset – new kitchen,
-              refit, major upgrades.
+              Track investments you&apos;ve made into this asset – new kitchen, refit,
+              major upgrades.
             </p>
           </div>
         </div>
@@ -914,7 +802,7 @@ export default function AssetDetailPage() {
           </p>
         ) : (
           <div className="space-y-2 text-sm">
-            {upgrades.map((u) => (
+            {upgrades.map((u: Upgrade) => (
               <div
                 key={u.id}
                 className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
@@ -929,15 +817,10 @@ export default function AssetDetailPage() {
                     </p>
                   )}
                   <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                    <span>
-                      Date: {formatDate(u.performed_date)}
-                    </span>
+                    <span>Date: {formatDate(u.performed_date)}</span>
                     <span>
                       Cost:{' '}
-                      {formatMoney(
-                        u.cost_amount,
-                        u.cost_currency
-                      )}
+                      {formatMoney(u.cost_amount, u.cost_currency)}
                     </span>
                     {u.provider_name && (
                       <span>Provider: {u.provider_name}</span>
@@ -954,9 +837,7 @@ export default function AssetDetailPage() {
           onSubmit={handleAddUpgrade}
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
-          <p className="font-medium text-slate-700">
-            Add an upgrade
-          </p>
+          <p className="font-medium text-slate-700">Add an upgrade</p>
           <div className="grid gap-2 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-[11px] text-slate-600">
@@ -965,9 +846,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={upgradeTitle}
-                onChange={(e) =>
-                  setUpgradeTitle(e.target.value)
-                }
+                onChange={(e) => setUpgradeTitle(e.target.value)}
                 required
                 placeholder={
                   isHome
@@ -984,9 +863,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={upgradeProvider}
-                onChange={(e) =>
-                  setUpgradeProvider(e.target.value)
-                }
+                onChange={(e) => setUpgradeProvider(e.target.value)}
                 placeholder="e.g. Corston, local builder"
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
@@ -1000,9 +877,7 @@ export default function AssetDetailPage() {
               <input
                 type="date"
                 value={upgradeDate}
-                onChange={(e) =>
-                  setUpgradeDate(e.target.value)
-                }
+                onChange={(e) => setUpgradeDate(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1013,9 +888,7 @@ export default function AssetDetailPage() {
               <input
                 type="number"
                 value={upgradeCost}
-                onChange={(e) =>
-                  setUpgradeCost(e.target.value)
-                }
+                onChange={(e) => setUpgradeCost(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1026,9 +899,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={upgradeCurrency}
-                onChange={(e) =>
-                  setUpgradeCurrency(e.target.value)
-                }
+                onChange={(e) => setUpgradeCurrency(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1039,9 +910,7 @@ export default function AssetDetailPage() {
             </label>
             <textarea
               value={upgradeDescription}
-              onChange={(e) =>
-                setUpgradeDescription(e.target.value)
-              }
+              onChange={(e) => setUpgradeDescription(e.target.value)}
               rows={2}
               placeholder="Scope of the upgrade, key details, etc."
               className="w-full rounded border px-2 py-1.5 text-xs"
@@ -1053,9 +922,7 @@ export default function AssetDetailPage() {
               disabled={savingUpgrade}
               className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
             >
-              {savingUpgrade
-                ? 'Saving…'
-                : 'Add upgrade'}
+              {savingUpgrade ? 'Saving…' : 'Add upgrade'}
             </button>
           </div>
         </form>
@@ -1069,8 +936,8 @@ export default function AssetDetailPage() {
               Home service history
             </p>
             <p className="text-[11px] text-slate-500">
-              Boiler services, chimney sweep, electrical checks – your
-              “service book” for this asset.
+              Boiler services, chimney sweep, electrical checks – your “service book” for
+              this asset.
             </p>
           </div>
         </div>
@@ -1081,7 +948,7 @@ export default function AssetDetailPage() {
           </p>
         ) : (
           <div className="space-y-2 text-sm">
-            {services.map((s) => (
+            {services.map((s: Service) => (
               <div
                 key={s.id}
                 className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
@@ -1096,15 +963,10 @@ export default function AssetDetailPage() {
                     </p>
                   )}
                   <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                    <span>
-                      Date: {formatDate(s.performed_date)}
-                    </span>
+                    <span>Date: {formatDate(s.performed_date)}</span>
                     <span>
                       Cost:{' '}
-                      {formatMoney(
-                        s.cost_amount,
-                        s.cost_currency
-                      )}
+                      {formatMoney(s.cost_amount, s.cost_currency)}
                     </span>
                     {s.provider_name && (
                       <span>Provider: {s.provider_name}</span>
@@ -1121,9 +983,7 @@ export default function AssetDetailPage() {
           onSubmit={handleAddService}
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
-          <p className="font-medium text-slate-700">
-            Add a service
-          </p>
+          <p className="font-medium text-slate-700">Add a service</p>
           <div className="grid gap-2 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-[11px] text-slate-600">
@@ -1132,9 +992,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={serviceType}
-                onChange={(e) =>
-                  setServiceType(e.target.value)
-                }
+                onChange={(e) => setServiceType(e.target.value)}
                 required
                 placeholder="e.g. Boiler service, chimney sweep"
                 className="w-full rounded border px-2 py-1.5 text-xs"
@@ -1147,11 +1005,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={serviceProvider}
-                onChange={(e) =>
-                  setServiceProvider(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setServiceProvider(e.target.value)}
                 placeholder="e.g. British Gas"
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
@@ -1165,11 +1019,7 @@ export default function AssetDetailPage() {
               <input
                 type="date"
                 value={serviceDate}
-                onChange={(e) =>
-                  setServiceDate(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setServiceDate(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1180,11 +1030,7 @@ export default function AssetDetailPage() {
               <input
                 type="number"
                 value={serviceCost}
-                onChange={(e) =>
-                  setServiceCost(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setServiceCost(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1195,11 +1041,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={serviceCurrency}
-                onChange={(e) =>
-                  setServiceCurrency(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setServiceCurrency(e.target.value)}
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
             </div>
@@ -1210,11 +1052,7 @@ export default function AssetDetailPage() {
             </label>
             <textarea
               value={serviceDescription}
-              onChange={(e) =>
-                setServiceDescription(
-                  e.target.value
-                )
-              }
+              onChange={(e) => setServiceDescription(e.target.value)}
               rows={2}
               placeholder="What was done, any findings, recommendations…"
               className="w-full rounded border px-2 py-1.5 text-xs"
@@ -1226,9 +1064,7 @@ export default function AssetDetailPage() {
               disabled={savingService}
               className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
             >
-              {savingService
-                ? 'Saving…'
-                : 'Add service'}
+              {savingService ? 'Saving…' : 'Add service'}
             </button>
           </div>
         </form>
@@ -1238,12 +1074,9 @@ export default function AssetDetailPage() {
       <div className="space-y-3 rounded border bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">
-              Key documents
-            </p>
+            <p className="text-sm font-semibold">Key documents</p>
             <p className="text-[11px] text-slate-500">
-              Store surveys, certificates, valuations and other PDFs
-              against this asset.
+              Store surveys, certificates, valuations and other PDFs against this asset.
             </p>
           </div>
         </div>
@@ -1254,7 +1087,7 @@ export default function AssetDetailPage() {
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {documents.map((d) => (
+            {documents.map((d: AssetDocument) => (
               <li
                 key={d.id}
                 className="flex items-center justify-between rounded border bg-slate-50 p-3"
@@ -1269,8 +1102,7 @@ export default function AssetDetailPage() {
                     </p>
                   )}
                   <p className="mt-1 text-[11px] text-slate-500">
-                    Uploaded:{' '}
-                    {formatDate(d.uploaded_at)}
+                    Uploaded: {formatDate(d.uploaded_at)}
                   </p>
                 </div>
                 {d.file_url && (
@@ -1293,9 +1125,7 @@ export default function AssetDetailPage() {
           onSubmit={handleAddDocument}
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
-          <p className="font-medium text-slate-700">
-            Add a document
-          </p>
+          <p className="font-medium text-slate-700">Add a document</p>
           <div className="grid gap-2 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-[11px] text-slate-600">
@@ -1304,9 +1134,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={docType}
-                onChange={(e) =>
-                  setDocType(e.target.value)
-                }
+                onChange={(e) => setDocType(e.target.value)}
                 placeholder="e.g. Survey, valuation, certificate"
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
@@ -1318,9 +1146,7 @@ export default function AssetDetailPage() {
               <input
                 type="text"
                 value={docNotes}
-                onChange={(e) =>
-                  setDocNotes(e.target.value)
-                }
+                onChange={(e) => setDocNotes(e.target.value)}
                 placeholder="Short description (optional)"
                 className="w-full rounded border px-2 py-1.5 text-xs"
               />
@@ -1333,11 +1159,9 @@ export default function AssetDetailPage() {
             className="mt-2 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center text-[11px] text-slate-600"
           >
             <p>
-              Drag &amp; drop a PDF or image
-              here,
+              Drag &amp; drop a PDF or image here,
               <br />
-              or click to choose from your
-              computer.
+              or click to choose from your computer.
             </p>
             <input
               type="file"
@@ -1358,23 +1182,21 @@ export default function AssetDetailPage() {
               disabled={savingDoc || !docFile}
               className="mt-2 rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
             >
-              {savingDoc
-                ? 'Saving…'
-                : 'Add document'}
+              {savingDoc ? 'Saving…' : 'Add document'}
             </button>
           </div>
         </form>
       </div>
 
-      {/* Valuation history (read-only) */}
+      {/* Valuation history */}
       {valuations.length > 0 && (
         <div className="space-y-3 rounded border bg-white p-4">
           <p className="text-sm font-semibold">
             Valuation history
           </p>
           <p className="text-[11px] text-slate-500">
-            Early experiments in how Round might track and explain changes
-            in value over time.
+            Early experiments in how Round might track and explain changes in value over
+            time.
           </p>
           <ul className="mt-2 space-y-2 text-sm">
             {valuations.map((v) => (
@@ -1384,18 +1206,14 @@ export default function AssetDetailPage() {
               >
                 <div>
                   <p className="font-medium">
-                    {v.valuation_source ||
-                      'Valuation'}
+                    {v.valuation_source || 'Valuation'}
                   </p>
                   <p className="text-[11px] text-slate-500">
                     {formatDate(v.created_at)}
                   </p>
                 </div>
                 <div className="text-right text-sm">
-                  {formatMoney(
-                    v.suggested_value,
-                    v.currency
-                  )}
+                  {formatMoney(v.suggested_value, v.currency)}
                 </div>
               </li>
             ))}
