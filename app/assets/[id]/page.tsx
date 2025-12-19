@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 type IdentityLevel = 'unknown' | 'basic' | 'good' | 'strong';
 
-// For now keep these very loose to avoid TS/Supabase shape mismatches
+// Loosely typing Supabase rows to avoid TS shape mismatches
 type Asset = any;
 type Upgrade = any;
 type Service = any;
@@ -30,7 +30,7 @@ function getCategoryName(asset: Asset | null): string | null {
   const cat = asset.category;
   if (!cat) return null;
 
-  // Supabase relationship can return array or single object
+  // Supabase relationship can be array or single object
   if (Array.isArray(cat)) {
     if (!cat[0]) return null;
     return cat[0].name ?? null;
@@ -200,9 +200,23 @@ export default function AssetDetailPage() {
   const [savingService, setSavingService] = useState(false);
 
   // Asset-level doc upload
-  const [docFile, setDocFile] = useState<File | null>(null);
-  const [docNotes, setDocNotes] = useState('');
-  const [savingDoc, setSavingDoc] = useState(false);
+  const [assetDocFile, setAssetDocFile] = useState<File | null>(null);
+  const [assetDocNotes, setAssetDocNotes] = useState('');
+  const [savingAssetDoc, setSavingAssetDoc] = useState(false);
+
+  // Upgrade-level doc upload
+  const [activeUpgradeIdForDocUpload, setActiveUpgradeIdForDocUpload] =
+    useState<string | null>(null);
+  const [upgradeDocFile, setUpgradeDocFile] = useState<File | null>(null);
+  const [upgradeDocNotes, setUpgradeDocNotes] = useState('');
+  const [savingUpgradeDoc, setSavingUpgradeDoc] = useState(false);
+
+  // Service-level doc upload
+  const [activeServiceIdForDocUpload, setActiveServiceIdForDocUpload] =
+    useState<string | null>(null);
+  const [serviceDocFile, setServiceDocFile] = useState<File | null>(null);
+  const [serviceDocNotes, setServiceDocNotes] = useState('');
+  const [savingServiceDoc, setSavingServiceDoc] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -279,13 +293,11 @@ export default function AssetDetailPage() {
           setServices(servicesData as Service[]);
         }
 
-        // Asset-level documents
+        // All documents for this asset (asset-level + upgrades + services)
         const { data: docsData } = await supabase
           .from('asset_documents')
           .select('*')
           .eq('asset_id', assetId)
-          .is('upgrade_id', null)
-          .is('service_id', null)
           .order('uploaded_at', { ascending: false });
 
         if (docsData) {
@@ -322,6 +334,8 @@ export default function AssetDetailPage() {
       load();
     }
   }, [assetId, router]);
+
+  // --- Upgrades & services (no change) ---
 
   const handleAddUpgrade = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -441,26 +455,76 @@ export default function AssetDetailPage() {
     }
   };
 
-  const handleDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setDocFile(file);
+  // --- Shared document helpers ---
+
+  const uploadFileToBucket = async (
+    file: File,
+    userId: string,
+    assetId: string
+  ): Promise<string | null> => {
+    const bucket = 'documents';
+    const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+    const path = `${userId}/${assetId}/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, file);
+
+    if (uploadError) {
+      console.error(uploadError);
+      setError('Could not upload document.');
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(path);
+    return publicUrlData?.publicUrl ?? null;
   };
 
-  const handleDocDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDeleteDocument = async (docId: string) => {
+    setError(null);
+    try {
+      const { error } = await supabase
+        .from('asset_documents')
+        .delete()
+        .eq('id', docId);
+
+      if (error) {
+        console.error(error);
+        setError('Could not delete document.');
+        return;
+      }
+
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    } catch (err) {
+      console.error(err);
+      setError('Something went wrong deleting the document.');
+    }
+  };
+
+  // --- Asset-level documents ---
+
+  const handleAssetDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setAssetDocFile(file);
+  };
+
+  const handleAssetDocDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) setDocFile(file);
+    if (file) setAssetDocFile(file);
   };
 
-  const handleDocDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleAssetDocDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
 
-  const handleAddDocument = async (e: React.FormEvent) => {
+  const handleAddAssetDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!asset || !docFile) return;
+    if (!asset || !assetDocFile) return;
 
-    setSavingDoc(true);
+    setSavingAssetDoc(true);
     setError(null);
 
     try {
@@ -473,51 +537,35 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const bucket = 'documents';
-      const safeName = docFile.name.replace(/[^\w.\-]+/g, '_');
-      const path = `${user.id}/${asset.id}/${Date.now()}-${safeName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(path, docFile);
-
-      if (uploadError) {
-        console.error(uploadError);
-        setError('Could not upload document.');
-        setSavingDoc(false);
+      const fileUrl = await uploadFileToBucket(assetDocFile, user.id, asset.id);
+      if (!fileUrl) {
+        setSavingAssetDoc(false);
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(path);
-      const fileUrl = publicUrlData?.publicUrl ?? null;
-
-      const { data, error: insertError } = await supabase
+      const { data, error } = await supabase
         .from('asset_documents')
         .insert({
           asset_id: asset.id,
           owner_id: user.id,
           file_url: fileUrl,
-          notes: docNotes || null,
+          notes: assetDocNotes || null,
           upgrade_id: null,
           service_id: null,
         })
         .select('*')
         .single();
 
-      if (insertError || !data) {
-        console.error(insertError);
-        setError(
-          insertError?.message || 'Could not save document.'
-        );
-        setSavingDoc(false);
+      if (error || !data) {
+        console.error(error);
+        setError('Could not save document.');
+        setSavingAssetDoc(false);
         return;
       }
 
       setDocuments((prev) => [data as AssetDocument, ...prev]);
-      setDocFile(null);
-      setDocNotes('');
+      setAssetDocFile(null);
+      setAssetDocNotes('');
     } catch (err: any) {
       console.error(err);
       setError(
@@ -526,9 +574,189 @@ export default function AssetDetailPage() {
           : 'Something went wrong saving the document.'
       );
     } finally {
-      setSavingDoc(false);
+      setSavingAssetDoc(false);
     }
   };
+
+  // --- Upgrade-level documents ---
+
+  const handleUpgradeDocFileChange = (
+    e: ChangeEvent<HTMLInputElement>,
+    upgradeId: string
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setActiveUpgradeIdForDocUpload(upgradeId);
+    setUpgradeDocFile(file);
+  };
+
+  const handleUpgradeDocDrop = (
+    e: DragEvent<HTMLDivElement>,
+    upgradeId: string
+  ) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    setActiveUpgradeIdForDocUpload(upgradeId);
+    setUpgradeDocFile(file);
+  };
+
+  const handleUpgradeDocDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleAddUpgradeDocument = async (
+    e: React.FormEvent,
+    upgradeId: string
+  ) => {
+    e.preventDefault();
+    if (!asset || !upgradeDocFile || activeUpgradeIdForDocUpload !== upgradeId) return;
+
+    setSavingUpgradeDoc(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const fileUrl = await uploadFileToBucket(upgradeDocFile, user.id, asset.id);
+      if (!fileUrl) {
+        setSavingUpgradeDoc(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('asset_documents')
+        .insert({
+          asset_id: asset.id,
+          owner_id: user.id,
+          file_url: fileUrl,
+          notes: upgradeDocNotes || null,
+          upgrade_id: upgradeId,
+          service_id: null,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError('Could not save document.');
+        setSavingUpgradeDoc(false);
+        return;
+      }
+
+      setDocuments((prev) => [data as AssetDocument, ...prev]);
+      setUpgradeDocFile(null);
+      setUpgradeDocNotes('');
+      setActiveUpgradeIdForDocUpload(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the document.'
+      );
+    } finally {
+      setSavingUpgradeDoc(false);
+    }
+  };
+
+  // --- Service-level documents ---
+
+  const handleServiceDocFileChange = (
+    e: ChangeEvent<HTMLInputElement>,
+    serviceId: string
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setActiveServiceIdForDocUpload(serviceId);
+    setServiceDocFile(file);
+  };
+
+  const handleServiceDocDrop = (
+    e: DragEvent<HTMLDivElement>,
+    serviceId: string
+  ) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    setActiveServiceIdForDocUpload(serviceId);
+    setServiceDocFile(file);
+  };
+
+  const handleServiceDocDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleAddServiceDocument = async (
+    e: React.FormEvent,
+    serviceId: string
+  ) => {
+    e.preventDefault();
+    if (!asset || !serviceDocFile || activeServiceIdForDocUpload !== serviceId) return;
+
+    setSavingServiceDoc(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const fileUrl = await uploadFileToBucket(serviceDocFile, user.id, asset.id);
+      if (!fileUrl) {
+        setSavingServiceDoc(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('asset_documents')
+        .insert({
+          asset_id: asset.id,
+          owner_id: user.id,
+          file_url: fileUrl,
+          notes: serviceDocNotes || null,
+          upgrade_id: null,
+          service_id: serviceId,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error(error);
+        setError('Could not save document.');
+        setSavingServiceDoc(false);
+        return;
+      }
+
+      setDocuments((prev) => [data as AssetDocument, ...prev]);
+      setServiceDocFile(null);
+      setServiceDocNotes('');
+      setActiveServiceIdForDocUpload(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong saving the document.'
+      );
+    } finally {
+      setSavingServiceDoc(false);
+    }
+  };
+
+  // --- Render guard rails ---
 
   if (loading) {
     return <div className="p-6">Loading asset…</div>;
@@ -561,6 +789,26 @@ export default function AssetDetailPage() {
       : 'Identity unclear';
 
   const roundReady = computeRoundReady(asset);
+
+  const assetLevelDocuments = documents.filter(
+    (d: AssetDocument) => !d.upgrade_id && !d.service_id
+  );
+
+  const upgradeDocsById: Record<string, AssetDocument[]> = {};
+  documents.forEach((d: AssetDocument) => {
+    if (d.upgrade_id) {
+      if (!upgradeDocsById[d.upgrade_id]) upgradeDocsById[d.upgrade_id] = [];
+      upgradeDocsById[d.upgrade_id].push(d);
+    }
+  });
+
+  const serviceDocsById: Record<string, AssetDocument[]> = {};
+  documents.forEach((d: AssetDocument) => {
+    if (d.service_id) {
+      if (!serviceDocsById[d.service_id]) serviceDocsById[d.service_id] = [];
+      serviceDocsById[d.service_id].push(d);
+    }
+  });
 
   return (
     <div className="space-y-4 p-6">
@@ -808,33 +1056,158 @@ export default function AssetDetailPage() {
           </p>
         ) : (
           <div className="space-y-2 text-sm">
-            {upgrades.map((u: Upgrade) => (
-              <div
-                key={u.id}
-                className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
-              >
-                <div>
-                  <p className="font-medium">
-                    {u.title || 'Upgrade'}
-                  </p>
-                  {u.description && (
-                    <p className="text-xs text-slate-600">
-                      {u.description}
+            {upgrades.map((u: Upgrade) => {
+              const docs = upgradeDocsById[u.id] || [];
+              const isUploading = activeUpgradeIdForDocUpload === u.id;
+
+              return (
+                <div
+                  key={u.id}
+                  className="space-y-2 rounded border bg-slate-50 p-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {u.title || 'Upgrade'}
+                      </p>
+                      {u.description && (
+                        <p className="text-xs text-slate-600">
+                          {u.description}
+                        </p>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                        <span>Date: {formatDate(u.performed_date)}</span>
+                        <span>
+                          Cost:{' '}
+                          {formatMoney(u.cost_amount, u.cost_currency)}
+                        </span>
+                        {u.provider_name && (
+                          <span>Provider: {u.provider_name}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Documents for this upgrade */}
+                  <div className="mt-2 space-y-1 text-xs">
+                    <p className="font-medium text-slate-700">
+                      Documents
                     </p>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                    <span>Date: {formatDate(u.performed_date)}</span>
-                    <span>
-                      Cost:{' '}
-                      {formatMoney(u.cost_amount, u.cost_currency)}
-                    </span>
-                    {u.provider_name && (
-                      <span>Provider: {u.provider_name}</span>
+                    {docs.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">
+                        No documents attached yet.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {docs.map((d: AssetDocument) => (
+                          <li
+                            key={d.id}
+                            className="flex items-center justify-between rounded border bg-white px-2 py-1"
+                          >
+                            <div>
+                              <p className="text-xs font-medium">
+                                {d.notes || 'Document'}
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                Uploaded: {formatDate(d.uploaded_at)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {d.file_url && (
+                                <a
+                                  href={d.file_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] text-sky-700 underline"
+                                >
+                                  Open
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDocument(d.id)}
+                                className="text-[11px] text-red-600"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
+
+                  {/* Add document to this upgrade */}
+                  <form
+                    onSubmit={(e) => handleAddUpgradeDocument(e, u.id)}
+                    className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
+                  >
+                    <p className="font-medium text-slate-700">
+                      Add document to this upgrade
+                    </p>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-slate-600">
+                        Label / notes
+                      </label>
+                      <input
+                        type="text"
+                        value={
+                          isUploading ? upgradeDocNotes : ''
+                        }
+                        onChange={(e) => {
+                          setActiveUpgradeIdForDocUpload(u.id);
+                          setUpgradeDocNotes(e.target.value);
+                        }}
+                        placeholder="e.g. Invoice, completion certificate"
+                        className="w-full rounded border px-2 py-1.5 text-[11px]"
+                      />
+                    </div>
+
+                    <div
+                      onDragOver={handleUpgradeDocDragOver}
+                      onDrop={(e) => handleUpgradeDocDrop(e, u.id)}
+                      className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center"
+                    >
+                      <p>
+                        Drag &amp; drop a file here,
+                        <br />
+                        or click to choose from your computer.
+                      </p>
+                      <input
+                        type="file"
+                        accept="application/pdf,image/*"
+                        className="mt-1 text-[11px]"
+                        onChange={(e) =>
+                          handleUpgradeDocFileChange(e, u.id)
+                        }
+                      />
+                      {isUploading && upgradeDocFile && (
+                        <p className="mt-1 text-[11px] text-slate-700">
+                          Selected: {upgradeDocFile.name}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={
+                          savingUpgradeDoc ||
+                          !upgradeDocFile ||
+                          activeUpgradeIdForDocUpload !== u.id
+                        }
+                        className="mt-1 rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+                      >
+                        {savingUpgradeDoc &&
+                        activeUpgradeIdForDocUpload === u.id
+                          ? 'Saving…'
+                          : 'Add document'}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -954,33 +1327,158 @@ export default function AssetDetailPage() {
           </p>
         ) : (
           <div className="space-y-2 text-sm">
-            {services.map((s: Service) => (
-              <div
-                key={s.id}
-                className="flex items-start justify-between gap-3 rounded border bg-slate-50 p-3"
-              >
-                <div>
-                  <p className="font-medium">
-                    {s.service_type || 'Service'}
-                  </p>
-                  {s.description && (
-                    <p className="text-xs text-slate-600">
-                      {s.description}
+            {services.map((s: Service) => {
+              const docs = serviceDocsById[s.id] || [];
+              const isUploading = activeServiceIdForDocUpload === s.id;
+
+              return (
+                <div
+                  key={s.id}
+                  className="space-y-2 rounded border bg-slate-50 p-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {s.service_type || 'Service'}
+                      </p>
+                      {s.description && (
+                        <p className="text-xs text-slate-600">
+                          {s.description}
+                        </p>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                        <span>Date: {formatDate(s.performed_date)}</span>
+                        <span>
+                          Cost:{' '}
+                          {formatMoney(s.cost_amount, s.cost_currency)}
+                        </span>
+                        {s.provider_name && (
+                          <span>Provider: {s.provider_name}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Documents for this service */}
+                  <div className="mt-2 space-y-1 text-xs">
+                    <p className="font-medium text-slate-700">
+                      Documents
                     </p>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                    <span>Date: {formatDate(s.performed_date)}</span>
-                    <span>
-                      Cost:{' '}
-                      {formatMoney(s.cost_amount, s.cost_currency)}
-                    </span>
-                    {s.provider_name && (
-                      <span>Provider: {s.provider_name}</span>
+                    {docs.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">
+                        No documents attached yet.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {docs.map((d: AssetDocument) => (
+                          <li
+                            key={d.id}
+                            className="flex items-center justify-between rounded border bg-white px-2 py-1"
+                          >
+                            <div>
+                              <p className="text-xs font-medium">
+                                {d.notes || 'Document'}
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                Uploaded: {formatDate(d.uploaded_at)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {d.file_url && (
+                                <a
+                                  href={d.file_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] text-sky-700 underline"
+                                >
+                                  Open
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDocument(d.id)}
+                                className="text-[11px] text-red-600"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
+
+                  {/* Add document to this service */}
+                  <form
+                    onSubmit={(e) => handleAddServiceDocument(e, s.id)}
+                    className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
+                  >
+                    <p className="font-medium text-slate-700">
+                      Add document to this service
+                    </p>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-slate-600">
+                        Label / notes
+                      </label>
+                      <input
+                        type="text"
+                        value={
+                          isUploading ? serviceDocNotes : ''
+                        }
+                        onChange={(e) => {
+                          setActiveServiceIdForDocUpload(s.id);
+                          setServiceDocNotes(e.target.value);
+                        }}
+                        placeholder="e.g. Service certificate, inspection report"
+                        className="w-full rounded border px-2 py-1.5 text-[11px]"
+                      />
+                    </div>
+
+                    <div
+                      onDragOver={handleServiceDocDragOver}
+                      onDrop={(e) => handleServiceDocDrop(e, s.id)}
+                      className="mt-1 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-2 text-center"
+                    >
+                      <p>
+                        Drag &amp; drop a file here,
+                        <br />
+                        or click to choose from your computer.
+                      </p>
+                      <input
+                        type="file"
+                        accept="application/pdf,image/*"
+                        className="mt-1 text-[11px]"
+                        onChange={(e) =>
+                          handleServiceDocFileChange(e, s.id)
+                        }
+                      />
+                      {isUploading && serviceDocFile && (
+                        <p className="mt-1 text-[11px] text-slate-700">
+                          Selected: {serviceDocFile.name}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={
+                          savingServiceDoc ||
+                          !serviceDocFile ||
+                          activeServiceIdForDocUpload !== s.id
+                        }
+                        className="mt-1 rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+                      >
+                        {savingServiceDoc &&
+                        activeServiceIdForDocUpload === s.id
+                          ? 'Saving…'
+                          : 'Add document'}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -1076,7 +1574,7 @@ export default function AssetDetailPage() {
         </form>
       </div>
 
-      {/* Key documents (asset-level) */}
+      {/* Asset-level Key documents */}
       <div className="space-y-3 rounded border bg-white p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -1087,13 +1585,13 @@ export default function AssetDetailPage() {
           </div>
         </div>
 
-        {documents.length === 0 ? (
+        {assetLevelDocuments.length === 0 ? (
           <p className="text-xs text-slate-500">
             No documents uploaded yet.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {documents.map((d: AssetDocument) => (
+            {assetLevelDocuments.map((d: AssetDocument) => (
               <li
                 key={d.id}
                 className="flex items-center justify-between rounded border bg-slate-50 p-3"
@@ -1111,16 +1609,25 @@ export default function AssetDetailPage() {
                     Uploaded: {formatDate(d.uploaded_at)}
                   </p>
                 </div>
-                {d.file_url && (
-                  <a
-                    href={d.file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-sky-700 underline"
+                <div className="flex items-center gap-2">
+                  {d.file_url && (
+                    <a
+                      href={d.file_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-sky-700 underline"
+                    >
+                      Open
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteDocument(d.id)}
+                    className="text-[11px] text-red-600"
                   >
-                    Open
-                  </a>
-                )}
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -1128,7 +1635,7 @@ export default function AssetDetailPage() {
 
         {/* Add document */}
         <form
-          onSubmit={handleAddDocument}
+          onSubmit={handleAddAssetDocument}
           className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
         >
           <p className="font-medium text-slate-700">Add a document</p>
@@ -1139,16 +1646,16 @@ export default function AssetDetailPage() {
             </label>
             <input
               type="text"
-              value={docNotes}
-              onChange={(e) => setDocNotes(e.target.value)}
+              value={assetDocNotes}
+              onChange={(e) => setAssetDocNotes(e.target.value)}
               placeholder="e.g. Home survey, boiler certificate"
               className="w-full rounded border px-2 py-1.5 text-xs"
             />
           </div>
 
           <div
-            onDragOver={handleDocDragOver}
-            onDrop={handleDocDrop}
+            onDragOver={handleAssetDocDragOver}
+            onDrop={handleAssetDocDrop}
             className="mt-2 flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 p-3 text-center text-[11px] text-slate-600"
           >
             <p>
@@ -1160,11 +1667,11 @@ export default function AssetDetailPage() {
               type="file"
               accept="application/pdf,image/*"
               className="mt-2 text-xs"
-              onChange={handleDocFileChange}
+              onChange={handleAssetDocFileChange}
             />
-            {docFile && (
+            {assetDocFile && (
               <p className="mt-2 text-[11px] text-slate-700">
-                Selected: {docFile.name}
+                Selected: {assetDocFile.name}
               </p>
             )}
           </div>
@@ -1172,10 +1679,10 @@ export default function AssetDetailPage() {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={savingDoc || !docFile}
+              disabled={savingAssetDoc || !assetDocFile}
               className="mt-2 rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
             >
-              {savingDoc ? 'Saving…' : 'Add document'}
+              {savingAssetDoc ? 'Saving…' : 'Add document'}
             </button>
           </div>
         </form>
