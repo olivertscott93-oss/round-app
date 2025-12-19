@@ -35,6 +35,20 @@ function getCategoryName(asset: Asset): string {
   return asset.category.name ?? '—';
 }
 
+function isHomeCategory(asset: Asset): boolean {
+  const categoryName = getCategoryName(asset);
+  const lower = categoryName.toLowerCase();
+  const homeKeywords = [
+    'home',
+    'house',
+    'property',
+    'flat',
+    'apartment',
+    'real estate',
+  ];
+  return homeKeywords.some((word) => lower.includes(word));
+}
+
 function computeIdentity(
   asset: Asset
 ): {
@@ -44,7 +58,61 @@ function computeIdentity(
   colorClass: string;
 } {
   const categoryName = getCategoryName(asset);
-  const hasCategory = !!categoryName && categoryName !== '—';
+  const isHome = isHomeCategory(asset);
+
+  const purchaseUrl = asset.purchase_url || '';
+  const hasZooplaOrRightmove =
+    purchaseUrl.includes('zoopla.') ||
+    purchaseUrl.includes('rightmove.');
+
+  if (isHome) {
+    const hasTitle = !!asset.title;
+    const hasCity = !!asset.city;
+    const hasCountry = !!asset.country;
+    const hasFullAddress = hasTitle && hasCity && hasCountry;
+
+    if (hasFullAddress && hasZooplaOrRightmove) {
+      return {
+        level: 'strong',
+        shortLabel: 'Strong',
+        tooltip:
+          'Identity: Strong – full address and a Zoopla/Rightmove link give Round a very precise handle on this home.',
+        colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      };
+    }
+
+    if (hasFullAddress || hasZooplaOrRightmove) {
+      return {
+        level: 'good',
+        shortLabel: 'Good',
+        tooltip:
+          'Identity: Good – we have either the full address or a property portal link. Add both for the best match.',
+        colorClass: 'bg-blue-100 text-blue-800 border-blue-200',
+      };
+    }
+
+    if (hasTitle) {
+      return {
+        level: 'basic',
+        shortLabel: 'Basic',
+        tooltip:
+          'Identity: Basic – we know roughly what the home is, but a full address and property link will help Round a lot.',
+        colorClass: 'bg-amber-100 text-amber-800 border-amber-200',
+      };
+    }
+
+    return {
+      level: 'unknown',
+      shortLabel: 'Unknown',
+      tooltip:
+        'Identity: Unknown – add at least an address or a property portal link.',
+      colorClass: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+  }
+
+  // Default (non-home) identity logic
+  const hasCategory =
+    !!categoryName && categoryName !== '—';
   const hasBrand = !!asset.brand;
   const hasModel = !!asset.model_name;
   const hasSerial = !!asset.serial_number;
@@ -95,21 +163,48 @@ function computeIdentity(
 
 function isRoundReady(asset: Asset): boolean {
   const identity = computeIdentity(asset);
-  const hasContext =
-    !!asset.purchase_url || !!asset.notes_internal || !!asset.receipt_url;
+  const purchaseUrl = asset.purchase_url || '';
+  const hasZooplaOrRightmove =
+    purchaseUrl.includes('zoopla.') ||
+    purchaseUrl.includes('rightmove.');
+
+  const hasGenericContext =
+    !!asset.purchase_url ||
+    !!asset.notes_internal ||
+    !!asset.receipt_url;
+
+  const isHome = isHomeCategory(asset);
+
+  if (isHome) {
+    const hasTitle = !!asset.title;
+    const hasCity = !!asset.city;
+    const hasCountry = !!asset.country;
+    const hasFullAddress = hasTitle && hasCity && hasCountry;
+
+    // For homes: Round-Ready = full address + Zoopla/Rightmove link
+    return hasFullAddress && hasZooplaOrRightmove;
+  }
 
   return (
-    (identity.level === 'good' || identity.level === 'strong') && hasContext
+    (identity.level === 'good' ||
+      identity.level === 'strong') &&
+    hasGenericContext
   );
 }
 
 function getRoundNextSteps(asset: Asset): string[] {
   if (!asset) return [];
 
-  const hasCategory =
-    !!asset.category_id || !!asset.category?.name;
+  const isHome = isHomeCategory(asset);
+  const purchaseUrl = asset.purchase_url || '';
+  const hasZooplaOrRightmove =
+    purchaseUrl.includes('zoopla.') ||
+    purchaseUrl.includes('rightmove.');
+
   const hasBrand = !!asset.brand;
   const hasModel = !!asset.model_name;
+  const hasCategory =
+    !!asset.category_id || !!asset.category?.name;
   const hasPurchasePrice =
     asset.purchase_price !== null &&
     asset.purchase_price !== undefined;
@@ -119,15 +214,73 @@ function getRoundNextSteps(asset: Asset): string[] {
     !!asset.notes_internal ||
     !!asset.receipt_url;
 
+  const hints: string[] = [];
+
+  if (isHome) {
+    const hasTitle = !!asset.title;
+    const hasCity = !!asset.city;
+    const hasCountry = !!asset.country;
+    const hasFullAddress = hasTitle && hasCity && hasCountry;
+
+    const roundReady = hasFullAddress && hasZooplaOrRightmove;
+
+    if (roundReady) {
+      hints.push(
+        'This home is Round-Ready. Next step: connect it to live property market data so Round can refresh valuations automatically.'
+      );
+      hints.push(
+        'Keep feeding Round with upgrades, service history and key documents – it will all support future valuations and resale discussions.'
+      );
+      return hints;
+    }
+
+    if (!hasFullAddress) {
+      hints.push(
+        'Add the full address – street, city and country (and ideally postcode in the title) so Round can locate this home precisely.'
+      );
+    }
+
+    if (!hasZooplaOrRightmove) {
+      hints.push(
+        'Add a Zoopla or Rightmove link for this property so Round can tap into existing property data and comparables.'
+      );
+    }
+
+    if (!hasPurchasePrice) {
+      hints.push(
+        'Add what you originally paid for this home – that becomes the baseline for tracking your gain over time.'
+      );
+    }
+
+    if (!hasPurchaseDate) {
+      hints.push(
+        'Add the purchase date so Round understands how long you have held the property and can model annual appreciation.'
+      );
+    }
+
+    if (!hasContext) {
+      hints.push(
+        'Upload your purchase documents or survey, or paste key notes from your solicitor/agent emails so Round has richer context.'
+      );
+    }
+
+    if (hints.length === 0) {
+      hints.push(
+        'Add any small missing details above – then this home will be fully Round-Ready.'
+      );
+    }
+
+    return hints;
+  }
+
+  // Non-home assets
   const identityScore =
     (hasBrand ? 1 : 0) +
     (hasModel ? 1 : 0) +
     (hasCategory ? 1 : 0);
 
   const roundReady =
-    identityScore >= 2 && hasContext;
-
-  const hints: string[] = [];
+    (identityScore >= 2) && hasContext;
 
   if (roundReady) {
     hints.push(
@@ -139,7 +292,6 @@ function getRoundNextSteps(asset: Asset): string[] {
     return hints;
   }
 
-  // Identity gaps
   if (!hasBrand || !hasModel) {
     hints.push(
       'Add brand and model so Round can match this asset accurately against market data.'
@@ -148,11 +300,10 @@ function getRoundNextSteps(asset: Asset): string[] {
 
   if (!hasCategory) {
     hints.push(
-      'Set a category (e.g. Home, Furniture, Tech, Vehicle) so Round compares it to the right market.'
+      'Set a category (e.g. Furniture, Tech, Vehicle) so Round compares it to the right market.'
     );
   }
 
-  // Value baseline
   if (!hasPurchasePrice) {
     hints.push(
       'Add what you originally paid – that’s the baseline for tracking gain or loss.'
@@ -165,7 +316,6 @@ function getRoundNextSteps(asset: Asset): string[] {
     );
   }
 
-  // Context gaps
   if (!hasContext) {
     hints.push(
       'Upload a receipt, paste an order confirmation, or add a purchase link so Round has something to parse.'
@@ -204,13 +354,18 @@ export default function AssetDetailPage() {
   const assetId = params?.id as string;
 
   const [asset, setAsset] = useState<Asset | null>(null);
-  const [valuations, setValuations] = useState<any[]>([]);
+  const [valuations, setValuations] =
+    useState<any[]>([]);
   const [upgrades, setUpgrades] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
+  const [documents, setDocuments] =
+    useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [runningImport, setRunningImport] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [runningImport, setRunningImport] =
+    useState(false);
+  const [error, setError] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     if (!assetId) return;
@@ -228,8 +383,10 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // Load main asset
-      const { data: assetData, error: assetError } = await supabase
+      const {
+        data: assetData,
+        error: assetError,
+      } = await supabase
         .from('assets')
         .select(
           `
@@ -267,17 +424,19 @@ export default function AssetDetailPage() {
 
       const normalisedAsset: Asset = {
         ...(assetData as any),
-        category: Array.isArray((assetData as any).category)
+        category: Array.isArray(
+          (assetData as any).category
+        )
           ? (assetData as any).category[0] ?? null
           : (assetData as any).category ?? null,
       };
 
       setAsset(normalisedAsset);
 
-      // Load valuations
-      const { data: valuationsData } = await supabase
-        .from('valuations')
-        .select(`
+      const { data: valuationsData } =
+        await supabase
+          .from('valuations')
+          .select(`
           id,
           asset_id,
           valuation_source,
@@ -290,16 +449,18 @@ export default function AssetDetailPage() {
           raw_data_json,
           created_at
         `)
-        .eq('asset_id', assetId)
-        .order('created_at', { ascending: false });
+          .eq('asset_id', assetId)
+          .order('created_at', {
+            ascending: false,
+          });
 
       setValuations(valuationsData || []);
 
-      // Load upgrades
-      const { data: upgradesData } = await supabase
-        .from('asset_upgrades')
-        .select(
-          `
+      const { data: upgradesData } =
+        await supabase
+          .from('asset_upgrades')
+          .select(
+            `
           id,
           asset_id,
           title,
@@ -311,17 +472,19 @@ export default function AssetDetailPage() {
           notes,
           created_at
         `
-        )
-        .eq('asset_id', assetId)
-        .order('completed_at', { ascending: false });
+          )
+          .eq('asset_id', assetId)
+          .order('completed_at', {
+            ascending: false,
+          });
 
       setUpgrades(upgradesData || []);
 
-      // Load services
-      const { data: servicesData } = await supabase
-        .from('asset_services')
-        .select(
-          `
+      const { data: servicesData } =
+        await supabase
+          .from('asset_services')
+          .select(
+            `
           id,
           asset_id,
           title,
@@ -333,17 +496,19 @@ export default function AssetDetailPage() {
           notes,
           created_at
         `
-        )
-        .eq('asset_id', assetId)
-        .order('service_date', { ascending: false });
+          )
+          .eq('asset_id', assetId)
+          .order('service_date', {
+            ascending: false,
+          });
 
       setServices(servicesData || []);
 
-      // Load documents
-      const { data: documentsData } = await supabase
-        .from('asset_documents')
-        .select(
-          `
+      const { data: documentsData } =
+        await supabase
+          .from('asset_documents')
+          .select(
+            `
           id,
           asset_id,
           asset_upgrade_id,
@@ -355,9 +520,11 @@ export default function AssetDetailPage() {
           uploaded_at,
           created_at
         `
-        )
-        .eq('asset_id', assetId)
-        .order('uploaded_at', { ascending: false });
+          )
+          .eq('asset_id', assetId)
+          .order('uploaded_at', {
+            ascending: false,
+          });
 
       setDocuments(documentsData || []);
 
@@ -383,9 +550,9 @@ export default function AssetDetailPage() {
         return;
       }
 
-      // Placeholder logic: small uplift on current_estimated_value or purchase_price
       const base =
-        asset.current_estimated_value ?? asset.purchase_price;
+        asset.current_estimated_value ??
+        asset.purchase_price;
 
       if (!base) {
         setError(
@@ -395,54 +562,64 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const suggestedValue = Math.round(base * 1.03); // +3% demo
+      const suggestedValue = Math.round(
+        base * 1.03
+      );
       const currency =
         asset.estimate_currency ||
         asset.purchase_currency ||
         'GBP';
 
-      const { error: insertError } = await supabase
-        .from('valuations')
-        .insert({
-          asset_id: asset.id,
-          requested_by: user.id,
-          valuation_source: 'Round Import (demo)',
-          suggested_value: suggestedValue,
-          currency,
-          raw_data_json: {
-            placeholder: true,
-            rule: '+3%',
-            note: 'Demo Round Import placeholder – not live market data yet',
-          } as any,
-        } as any);
+      const { error: insertError } =
+        await supabase
+          .from('valuations')
+          .insert({
+            asset_id: asset.id,
+            requested_by: user.id,
+            valuation_source:
+              'Round Import (demo)',
+            suggested_value: suggestedValue,
+            currency,
+            raw_data_json: {
+              placeholder: true,
+              rule: '+3%',
+              note: 'Demo Round Import placeholder – not live market data yet',
+            } as any,
+          } as any);
 
       if (insertError) {
         console.error(insertError);
-        setError('Could not create Round Import valuation.');
+        setError(
+          'Could not create Round Import valuation.'
+        );
         setRunningImport(false);
         return;
       }
 
-      const { data: valuationsData, error: reloadError } =
-        await supabase
-          .from('valuations')
-          .select(
-            `
-            id,
-            asset_id,
-            valuation_source,
-            suggested_value,
-            currency,
-            new_price_min,
-            new_price_max,
-            used_price_min,
-            used_price_max,
-            raw_data_json,
-            created_at
+      const {
+        data: valuationsData,
+        error: reloadError,
+      } = await supabase
+        .from('valuations')
+        .select(
           `
-          )
-          .eq('asset_id', asset.id)
-          .order('created_at', { ascending: false });
+          id,
+          asset_id,
+          valuation_source,
+          suggested_value,
+          currency,
+          new_price_min,
+          new_price_max,
+          used_price_min,
+          used_price_max,
+          raw_data_json,
+          created_at
+        `
+        )
+        .eq('asset_id', asset.id)
+        .order('created_at', {
+          ascending: false,
+        });
 
       if (!reloadError && valuationsData) {
         setValuations(valuationsData);
@@ -478,12 +655,16 @@ export default function AssetDetailPage() {
       }
 
       const bucket = 'documents';
-      const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+      const safeName = file.name.replace(
+        /[^\w.\-]+/g,
+        '_'
+      );
       const filePath = `${user.id}/${asset.id}/${Date.now()}-${safeName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, file);
+      const { error: uploadError } =
+        await supabase.storage
+          .from(bucket)
+          .upload(filePath, file);
 
       if (uploadError) {
         console.error(uploadError);
@@ -506,9 +687,10 @@ export default function AssetDetailPage() {
         payload.asset_service_id = targetId;
       }
 
-      const { error: docError } = await supabase
-        .from('asset_documents')
-        .insert(payload);
+      const { error: docError } =
+        await supabase
+          .from('asset_documents')
+          .insert(payload);
 
       if (docError) {
         console.error(docError);
@@ -516,35 +698,40 @@ export default function AssetDetailPage() {
         return;
       }
 
-      const { data: documentsData, error: reloadError } =
-        await supabase
-          .from('asset_documents')
-          .select(
-            `
-            id,
-            asset_id,
-            asset_upgrade_id,
-            asset_service_id,
-            bucket,
-            path,
-            file_name,
-            file_type,
-            uploaded_at,
-            created_at
+      const {
+        data: documentsData,
+        error: reloadError,
+      } = await supabase
+        .from('asset_documents')
+        .select(
           `
-          )
-          .eq('asset_id', asset.id)
-          .order('uploaded_at', { ascending: false });
+          id,
+          asset_id,
+          asset_upgrade_id,
+          asset_service_id,
+          bucket,
+          path,
+          file_name,
+          file_type,
+          uploaded_at,
+          created_at
+        `
+        )
+        .eq('asset_id', asset.id)
+        .order('uploaded_at', {
+          ascending: false,
+        });
 
       if (!reloadError && documentsData) {
         setDocuments(documentsData);
       }
 
-      // reset file input
       event.target.value = '';
     } catch (err) {
       console.error(err);
-      setError('Something went wrong while uploading.');
+      setError(
+        'Something went wrong while uploading.'
+      );
     }
   };
 
@@ -558,7 +745,9 @@ export default function AssetDetailPage() {
   };
 
   if (loading) {
-    return <div className="p-6">Loading asset…</div>;
+    return <div className="p-6">
+      Loading asset…
+    </div>;
   }
 
   if (!asset) {
@@ -581,10 +770,10 @@ export default function AssetDetailPage() {
   const roundReady = isRoundReady(asset);
   const roundNextSteps = getRoundNextSteps(asset);
   const categoryName = getCategoryName(asset);
+  const isHome = isHomeCategory(asset);
 
   const assetLevelDocuments = documents.filter(
-    (d) =>
-      !d.asset_upgrade_id && !d.asset_service_id
+    (d) => !d.asset_upgrade_id && !d.asset_service_id
   );
 
   return (
@@ -640,20 +829,28 @@ export default function AssetDetailPage() {
               {asset.status ?? 'unknown'}
             </span>
           </p>
-          <div className="mt-3 space-y-1 text-xs text-slate-700">
-            <p>
-              <span className="font-medium">Brand:</span>{' '}
-              {asset.brand || '—'}
-            </p>
-            <p>
-              <span className="font-medium">Model:</span>{' '}
-              {asset.model_name || '—'}
-            </p>
-            <p>
-              <span className="font-medium">Serial / ID:</span>{' '}
-              {asset.serial_number || '—'}
-            </p>
-          </div>
+          {!isHome && (
+            <div className="mt-3 space-y-1 text-xs text-slate-700">
+              <p>
+                <span className="font-medium">
+                  Brand:
+                </span>{' '}
+                {asset.brand || '—'}
+              </p>
+              <p>
+                <span className="font-medium">
+                  Model:
+                </span>{' '}
+                {asset.model_name || '—'}
+              </p>
+              <p>
+                <span className="font-medium">
+                  Serial / ID:
+                </span>{' '}
+                {asset.serial_number || '—'}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 rounded border bg-white p-4 text-sm">
@@ -708,8 +905,8 @@ export default function AssetDetailPage() {
               )}
             </div>
             <p className="text-xs text-slate-600">
-              For now, these values use simple placeholder logic –
-              not live market data yet.
+              For now, these values use simple placeholder
+              logic – not live market data yet.
             </p>
           </div>
 
@@ -830,8 +1027,8 @@ export default function AssetDetailPage() {
           Upgrades & Improvements
         </p>
         <p className="text-xs text-slate-600">
-          Track investments that enhance this asset – useful for
-          both value and service history.
+          Track investments that enhance this asset – useful
+          for both value and service history.
         </p>
 
         {upgrades.length === 0 ? (
@@ -842,8 +1039,7 @@ export default function AssetDetailPage() {
           <div className="space-y-3">
             {upgrades.map((u) => {
               const upgradeDocs = documents.filter(
-                (d) =>
-                  d.asset_upgrade_id === u.id
+                (d) => d.asset_upgrade_id === u.id
               );
               return (
                 <div
@@ -877,8 +1073,7 @@ export default function AssetDetailPage() {
                   </div>
                   {u.supplier_name && (
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Supplier:{' '}
-                      {u.supplier_name}
+                      Supplier: {u.supplier_name}
                     </p>
                   )}
                   {u.notes && (
@@ -887,7 +1082,6 @@ export default function AssetDetailPage() {
                     </p>
                   )}
 
-                  {/* Upgrade documents */}
                   <div className="mt-2 space-y-1">
                     <p className="text-[11px] font-medium text-slate-700">
                       Documents
@@ -906,8 +1100,9 @@ export default function AssetDetailPage() {
                             <a
                               href={supabase.storage
                                 .from(d.bucket)
-                                .getPublicUrl(d.path)
-                                .data.publicUrl}
+                                .getPublicUrl(
+                                  d.path
+                                ).data.publicUrl}
                               target="_blank"
                               rel="noreferrer"
                               className="text-slate-800 underline"
@@ -949,8 +1144,8 @@ export default function AssetDetailPage() {
           Home Service History
         </p>
         <p className="text-xs text-slate-600">
-          Boiler services, safety checks, inspections and more –
-          all in one place.
+          Boiler services, safety checks, inspections and more
+          – all in one place.
         </p>
 
         {services.length === 0 ? (
@@ -961,8 +1156,7 @@ export default function AssetDetailPage() {
           <div className="space-y-3">
             {services.map((s) => {
               const serviceDocs = documents.filter(
-                (d) =>
-                  d.asset_service_id === s.id
+                (d) => d.asset_service_id === s.id
               );
               return (
                 <div
@@ -996,8 +1190,7 @@ export default function AssetDetailPage() {
                   </div>
                   {s.provider_name && (
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Provider:{' '}
-                      {s.provider_name}
+                      Provider: {s.provider_name}
                     </p>
                   )}
                   {s.notes && (
@@ -1006,7 +1199,6 @@ export default function AssetDetailPage() {
                     </p>
                   )}
 
-                  {/* Service documents */}
                   <div className="mt-2 space-y-1">
                     <p className="text-[11px] font-medium text-slate-700">
                       Documents
@@ -1025,8 +1217,9 @@ export default function AssetDetailPage() {
                             <a
                               href={supabase.storage
                                 .from(d.bucket)
-                                .getPublicUrl(d.path)
-                                .data.publicUrl}
+                                .getPublicUrl(
+                                  d.path
+                                ).data.publicUrl}
                               target="_blank"
                               rel="noreferrer"
                               className="text-slate-800 underline"
@@ -1083,7 +1276,9 @@ export default function AssetDetailPage() {
                 <a
                   href={supabase.storage
                     .from(d.bucket)
-                    .getPublicUrl(d.path).data.publicUrl}
+                    .getPublicUrl(
+                      d.path
+                    ).data.publicUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-slate-800 underline"
