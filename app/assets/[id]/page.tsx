@@ -539,7 +539,7 @@ export default function AssetDetailPage() {
     setEditUpgradeProvider('');
   };
 
-  const handleUpdateUpgrade = async (
+   const handleUpdateUpgrade = async (
     e: React.FormEvent,
     upgradeId: string
   ) => {
@@ -575,9 +575,8 @@ export default function AssetDetailPage() {
         })
         .eq('id', upgradeId)
         .eq('asset_id', asset.id)
-        .eq('owner_id', user.id)
-        .select('*')
-        .maybeSingle();
+        // Rely on RLS for ownership rather than filtering by owner_id here
+        .select('*'); // returns an array of rows
 
       if (error) {
         console.error(error);
@@ -586,17 +585,30 @@ export default function AssetDetailPage() {
         return;
       }
 
-      if (!data) {
+      if (!data || data.length === 0) {
+        // No rows actually updated (e.g. RLS blocked it)
         setError('Could not update upgrade.');
         setSavingUpgradeEdit(false);
         return;
       }
 
+      const updated = data[0] as Upgrade;
+
       setUpgrades((prev) =>
-        prev.map((u: Upgrade) =>
-          u.id === upgradeId ? (data as Upgrade) : u
-        )
+        prev.map((u: Upgrade) => (u.id === upgradeId ? updated : u))
       );
+      cancelEditUpgrade();
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong updating the upgrade.'
+      );
+    } finally {
+      setSavingUpgradeEdit(false);
+    }
+  };
       cancelEditUpgrade();
     } catch (err: any) {
       console.error(err);
