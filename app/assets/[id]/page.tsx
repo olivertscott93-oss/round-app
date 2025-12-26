@@ -1419,70 +1419,440 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Upgrades & Improvements */}
-      {/* ... the rest of the file remains exactly as in your last working version ... */}
-      {/* (I’ve left all the Upgrades, Services, Documents and Valuation sections unchanged
-          below this point, since the only new behaviour we needed was the Round loop card.) */}
+      {/* Home-only sections */}
+      {isHome && (
+        <>
+          {/* Upgrades & Improvements */}
+          <div className="space-y-3 rounded border bg-white p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">
+                  Upgrades &amp; improvements
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  New kitchen, refits, major improvements – anything that adds
+                  value.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white"
+                onClick={() => setShowAddUpgradeForm((prev) => !prev)}
+              >
+                {showAddUpgradeForm ? 'Close form' : 'Add upgrade'}
+              </button>
+            </div>
 
-      {/* Upgrades & Improvements */}
-      <div className="space-y-3 rounded border bg-white p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold">
-              Upgrades &amp; improvements
-            </p>
-            <p className="text-[11px] text-slate-500">
-              New kitchen, refits, major improvements – anything that adds
-              value.
-            </p>
+            {upgrades.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No upgrades recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {upgrades.map((u: Upgrade) => {
+                  const docs = upgradeDocsById[u.id] || [];
+                  const isEditing = editingUpgradeId === u.id;
+                  const showDocForm = upgradeDocTargetId === u.id;
+
+                  return (
+                    <div
+                      key={u.id}
+                      className="space-y-2 rounded border bg-slate-50 p-3"
+                    >
+                      {!isEditing && (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">
+                                {u.title || 'Upgrade'}
+                              </p>
+                              {u.description && (
+                                <p className="text-xs text-slate-600">
+                                  {u.description}
+                                </p>
+                              )}
+                              <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                                <span>{formatDate(u.performed_date)}</span>
+                                <span>
+                                  {formatMoney(
+                                    u.cost_amount,
+                                    u.cost_currency
+                                  )}
+                                </span>
+                                {u.provider_name && (
+                                  <span>by {u.provider_name}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 text-[11px]">
+                              {docs.length > 0 && (
+                                <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-700">
+                                  📄 {docs.length} doc
+                                  {docs.length > 1 ? 's' : ''}
+                                </span>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  className="text-sky-700 underline"
+                                  onClick={() => startEditUpgrade(u)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-red-600 underline"
+                                  onClick={() => handleDeleteUpgrade(u.id)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {docs.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              {docs.map((d: AssetDocument) => (
+                                <div
+                                  key={d.id}
+                                  className="flex items-center gap-2 rounded-full border bg-white px-2 py-1"
+                                >
+                                  <span className="text-[11px]">📄</span>
+                                  <a
+                                    href={d.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="max-w-[160px] truncate text-[11px] text-sky-700 underline"
+                                  >
+                                    {d.notes || 'Document'}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDeleteDocument(d.id)
+                                    }
+                                    className="text-[11px] text-red-600"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="mt-1">
+                            {!showDocForm && (
+                              <button
+                                type="button"
+                                className="text-[11px] text-sky-700 underline"
+                                onClick={() => setUpgradeDocTargetId(u.id)}
+                              >
+                                Attach document
+                              </button>
+                            )}
+                          </div>
+
+                          {showDocForm && (
+                            <form
+                              onSubmit={handleAddUpgradeDocument}
+                              className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
+                            >
+                              <div className="flex flex-col gap-2 md:flex-row">
+                                <input
+                                  type="text"
+                                  value={upgradeDocNotes}
+                                  onChange={(e) =>
+                                    setUpgradeDocNotes(e.target.value)
+                                  }
+                                  placeholder="Label (invoice, completion cert...)"
+                                  className="w-full rounded border px-2 py-1.5"
+                                />
+                                <input
+                                  type="file"
+                                  accept="application/pdf,image/*"
+                                  onChange={handleUpgradeDocFileChange}
+                                  className="text-xs"
+                                />
+                              </div>
+                              {upgradeDocFile && (
+                                <p className="text-[11px] text-slate-700">
+                                  Selected: {upgradeDocFile.name}
+                                </p>
+                              )}
+                              <div
+                                onDragOver={handleUpgradeDocDragOver}
+                                onDrop={handleUpgradeDocDrop}
+                                className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
+                              >
+                                Drag &amp; drop file here (optional)
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  className="rounded border px-3 py-1.5"
+                                  onClick={() => {
+                                    setUpgradeDocTargetId(null);
+                                    setUpgradeDocFile(null);
+                                    setUpgradeDocNotes('');
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="submit"
+                                  disabled={
+                                    savingUpgradeDoc || !upgradeDocFile
+                                  }
+                                  className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
+                                >
+                                  {savingUpgradeDoc ? 'Saving…' : 'Add'}
+                                </button>
+                              </div>
+                            </form>
+                          )}
+                        </>
+                      )}
+
+                      {isEditing && (
+                        <form
+                          onSubmit={(e) => handleUpdateUpgrade(e, u.id)}
+                          className="space-y-2 rounded border border-slate-300 bg-white p-2 text-[11px]"
+                        >
+                          <p className="font-medium text-slate-700">
+                            Edit upgrade
+                          </p>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <input
+                              type="text"
+                              value={editUpgradeTitle}
+                              onChange={(e) =>
+                                setEditUpgradeTitle(e.target.value)
+                              }
+                              required
+                              placeholder="Title"
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                            <input
+                              type="text"
+                              value={editUpgradeProvider}
+                              onChange={(e) =>
+                                setEditUpgradeProvider(e.target.value)
+                              }
+                              placeholder="Provider"
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                          </div>
+                          <div className="grid gap-2 md:grid-cols-3">
+                            <input
+                              type="date"
+                              value={editUpgradeDate}
+                              onChange={(e) =>
+                                setEditUpgradeDate(e.target.value)
+                              }
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                            <input
+                              type="number"
+                              value={editUpgradeCost}
+                              onChange={(e) =>
+                                setEditUpgradeCost(e.target.value)
+                              }
+                              placeholder="Cost"
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                            <input
+                              type="text"
+                              value={editUpgradeCurrency}
+                              onChange={(e) =>
+                                setEditUpgradeCurrency(e.target.value)
+                              }
+                              className="w-full rounded border px-2 py-1.5"
+                            />
+                          </div>
+                          <textarea
+                            value={editUpgradeDescription}
+                            onChange={(e) =>
+                              setEditUpgradeDescription(e.target.value)
+                            }
+                            rows={2}
+                            placeholder="Description"
+                            className="w-full rounded border px-2 py-1.5"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditUpgrade}
+                              className="rounded border px-3 py-1.5"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={savingUpgradeEdit}
+                              className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
+                            >
+                              {savingUpgradeEdit ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {showAddUpgradeForm && (
+              <form
+                onSubmit={handleAddUpgrade}
+                className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
+              >
+                <p className="font-medium text-slate-700">Add an upgrade</p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <input
+                    type="text"
+                    value={upgradeTitle}
+                    onChange={(e) => setUpgradeTitle(e.target.value)}
+                    required
+                    placeholder="e.g. New kitchen, Corston switches"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={upgradeProvider}
+                    onChange={(e) => setUpgradeProvider(e.target.value)}
+                    placeholder="Provider (optional)"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <input
+                    type="date"
+                    value={upgradeDate}
+                    onChange={(e) => setUpgradeDate(e.target.value)}
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="number"
+                    value={upgradeCost}
+                    onChange={(e) => setUpgradeCost(e.target.value)}
+                    placeholder="Cost"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={upgradeCurrency}
+                    onChange={(e) => setUpgradeCurrency(e.target.value)}
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </div>
+                <textarea
+                  value={upgradeDescription}
+                  onChange={(e) => setUpgradeDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Scope of the upgrade"
+                  className="w-full rounded border px-2 py-1.5"
+                />
+
+                <div className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2">
+                  <div className="flex flex-col gap-2 md:flex-row">
+                    <input
+                      type="text"
+                      value={newUpgradeDocNotes}
+                      onChange={(e) => setNewUpgradeDocNotes(e.target.value)}
+                      placeholder="Label for document (optional)"
+                      className="w-full rounded border px-2 py-1.5 text-[11px]"
+                    />
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={handleNewUpgradeDocFileChange}
+                      className="text-[11px]"
+                    />
+                  </div>
+                  <div
+                    onDragOver={handleNewUpgradeDocDragOver}
+                    onDrop={handleNewUpgradeDocDrop}
+                    className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center text-[11px]"
+                  >
+                    Drag &amp; drop file here (optional)
+                  </div>
+                  {newUpgradeDocFile && (
+                    <p className="text-[11px] text-slate-700">
+                      Selected: {newUpgradeDocFile.name}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingUpgrade}
+                    className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+                  >
+                    {savingUpgrade ? 'Saving…' : 'Add upgrade'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-          <button
-            type="button"
-            className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white"
-            onClick={() => setShowAddUpgradeForm((prev) => !prev)}
-          >
-            {showAddUpgradeForm ? 'Close form' : 'Add upgrade'}
-          </button>
-        </div>
 
-        {upgrades.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            No upgrades recorded yet.
-          </p>
-        ) : (
-          <div className="space-y-2 text-sm">
-            {upgrades.map((u: Upgrade) => {
-              const docs = upgradeDocsById[u.id] || [];
-              const isEditing = editingUpgradeId === u.id;
-              const showDocForm = upgradeDocTargetId === u.id;
+          {/* Home service history */}
+          <div className="space-y-3 rounded border bg-white p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">
+                  Home service history
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Boiler service, chimney sweep, electrical checks – like a car
+                  service book for your home.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white"
+                onClick={() => setShowAddServiceForm((prev) => !prev)}
+              >
+                {showAddServiceForm ? 'Close form' : 'Add service'}
+              </button>
+            </div>
 
-              return (
-                <div
-                  key={u.id}
-                  className="space-y-2 rounded border bg-slate-50 p-3"
-                >
-                  {!isEditing && (
-                    <>
+            {services.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No services recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {services.map((s: Service) => {
+                  const docs = serviceDocsById[s.id] || [];
+                  const showDocForm = serviceDocTargetId === s.id;
+
+                  return (
+                    <div
+                      key={s.id}
+                      className="space-y-2 rounded border bg-slate-50 p-3"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-medium">
-                            {u.title || 'Upgrade'}
+                            {s.service_type || 'Service'}
                           </p>
-                          {u.description && (
+                          {s.description && (
                             <p className="text-xs text-slate-600">
-                              {u.description}
+                              {s.description}
                             </p>
                           )}
                           <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                            <span>{formatDate(u.performed_date)}</span>
+                            <span>{formatDate(s.performed_date)}</span>
                             <span>
                               {formatMoney(
-                                u.cost_amount,
-                                u.cost_currency
+                                s.cost_amount,
+                                s.cost_currency
                               )}
                             </span>
-                            {u.provider_name && (
-                              <span>by {u.provider_name}</span>
+                            {s.provider_name && (
+                              <span>by {s.provider_name}</span>
                             )}
                           </div>
                         </div>
@@ -1493,22 +1863,6 @@ export default function AssetDetailPage() {
                               {docs.length > 1 ? 's' : ''}
                             </span>
                           )}
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              className="text-sky-700 underline"
-                              onClick={() => startEditUpgrade(u)}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="text-red-600 underline"
-                              onClick={() => handleDeleteUpgrade(u.id)}
-                            >
-                              Delete
-                            </button>
-                          </div>
                         </div>
                       </div>
 
@@ -1547,7 +1901,7 @@ export default function AssetDetailPage() {
                           <button
                             type="button"
                             className="text-[11px] text-sky-700 underline"
-                            onClick={() => setUpgradeDocTargetId(u.id)}
+                            onClick={() => setServiceDocTargetId(s.id)}
                           >
                             Attach document
                           </button>
@@ -1556,34 +1910,34 @@ export default function AssetDetailPage() {
 
                       {showDocForm && (
                         <form
-                          onSubmit={handleAddUpgradeDocument}
+                          onSubmit={handleAddServiceDocument}
                           className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
                         >
                           <div className="flex flex-col gap-2 md:flex-row">
                             <input
                               type="text"
-                              value={upgradeDocNotes}
+                              value={serviceDocNotes}
                               onChange={(e) =>
-                                setUpgradeDocNotes(e.target.value)
+                                setServiceDocNotes(e.target.value)
                               }
-                              placeholder="Label (invoice, completion cert...)"
+                              placeholder="Label for document"
                               className="w-full rounded border px-2 py-1.5"
                             />
                             <input
                               type="file"
                               accept="application/pdf,image/*"
-                              onChange={handleUpgradeDocFileChange}
+                              onChange={handleServiceDocFileChange}
                               className="text-xs"
                             />
                           </div>
-                          {upgradeDocFile && (
+                          {serviceDocFile && (
                             <p className="text-[11px] text-slate-700">
-                              Selected: {upgradeDocFile.name}
+                              Selected: {serviceDocFile.name}
                             </p>
                           )}
                           <div
-                            onDragOver={handleUpgradeDocDragOver}
-                            onDrop={handleUpgradeDocDrop}
+                            onDragOver={handleServiceDocDragOver}
+                            onDrop={handleServiceDocDrop}
                             className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
                           >
                             Drag &amp; drop file here (optional)
@@ -1593,9 +1947,9 @@ export default function AssetDetailPage() {
                               type="button"
                               className="rounded border px-3 py-1.5"
                               onClick={() => {
-                                setUpgradeDocTargetId(null);
-                                setUpgradeDocFile(null);
-                                setUpgradeDocNotes('');
+                                setServiceDocTargetId(null);
+                                setServiceDocFile(null);
+                                setServiceDocNotes('');
                               }}
                             >
                               Cancel
@@ -1603,442 +1957,92 @@ export default function AssetDetailPage() {
                             <button
                               type="submit"
                               disabled={
-                                savingUpgradeDoc || !upgradeDocFile
+                                savingServiceDoc || !serviceDocFile
                               }
                               className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
                             >
-                              {savingUpgradeDoc ? 'Saving…' : 'Add'}
+                              {savingServiceDoc ? 'Saving…' : 'Add'}
                             </button>
                           </div>
                         </form>
                       )}
-                    </>
-                  )}
-
-                  {isEditing && (
-                    <form
-                      onSubmit={(e) => handleUpdateUpgrade(e, u.id)}
-                      className="space-y-2 rounded border border-slate-300 bg-white p-2 text-[11px]"
-                    >
-                      <p className="font-medium text-slate-700">
-                        Edit upgrade
-                      </p>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <input
-                          type="text"
-                          value={editUpgradeTitle}
-                          onChange={(e) =>
-                            setEditUpgradeTitle(e.target.value)
-                          }
-                          required
-                          placeholder="Title"
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                        <input
-                          type="text"
-                          value={editUpgradeProvider}
-                          onChange={(e) =>
-                            setEditUpgradeProvider(e.target.value)
-                          }
-                          placeholder="Provider"
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-3">
-                        <input
-                          type="date"
-                          value={editUpgradeDate}
-                          onChange={(e) =>
-                            setEditUpgradeDate(e.target.value)
-                          }
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                        <input
-                          type="number"
-                          value={editUpgradeCost}
-                          onChange={(e) =>
-                            setEditUpgradeCost(e.target.value)
-                          }
-                          placeholder="Cost"
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                        <input
-                          type="text"
-                          value={editUpgradeCurrency}
-                          onChange={(e) =>
-                            setEditUpgradeCurrency(e.target.value)
-                          }
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                      </div>
-                      <textarea
-                        value={editUpgradeDescription}
-                        onChange={(e) =>
-                          setEditUpgradeDescription(e.target.value)
-                        }
-                        rows={2}
-                        placeholder="Description"
-                        className="w-full rounded border px-2 py-1.5"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={cancelEditUpgrade}
-                          className="rounded border px-3 py-1.5"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={savingUpgradeEdit}
-                          className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
-                        >
-                          {savingUpgradeEdit ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {showAddUpgradeForm && (
-          <form
-            onSubmit={handleAddUpgrade}
-            className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
-          >
-            <p className="font-medium text-slate-700">Add an upgrade</p>
-            <div className="grid gap-2 md:grid-cols-2">
-              <input
-                type="text"
-                value={upgradeTitle}
-                onChange={(e) => setUpgradeTitle(e.target.value)}
-                required
-                placeholder={
-                  isHome
-                    ? 'e.g. New kitchen, Corston switches'
-                    : 'e.g. Reupholstery'
-                }
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="text"
-                value={upgradeProvider}
-                onChange={(e) => setUpgradeProvider(e.target.value)}
-                placeholder="Provider (optional)"
-                className="w-full rounded border px-2 py-1.5"
-              />
-            </div>
-            <div className="grid gap-2 md:grid-cols-3">
-              <input
-                type="date"
-                value={upgradeDate}
-                onChange={(e) => setUpgradeDate(e.target.value)}
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="number"
-                value={upgradeCost}
-                onChange={(e) => setUpgradeCost(e.target.value)}
-                placeholder="Cost"
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="text"
-                value={upgradeCurrency}
-                onChange={(e) => setUpgradeCurrency(e.target.value)}
-                className="w-full rounded border px-2 py-1.5"
-              />
-            </div>
-            <textarea
-              value={upgradeDescription}
-              onChange={(e) => setUpgradeDescription(e.target.value)}
-              rows={2}
-              placeholder="Scope of the upgrade"
-              className="w-full rounded border px-2 py-1.5"
-            />
-
-            <div className="mt-2 space-y-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2">
-              <div className="flex flex-col gap-2 md:flex-row">
-                <input
-                  type="text"
-                  value={newUpgradeDocNotes}
-                  onChange={(e) => setNewUpgradeDocNotes(e.target.value)}
-                  placeholder="Label for document (optional)"
-                  className="w-full rounded border px-2 py-1.5 text-[11px]"
-                />
-                <input
-                  type="file"
-                  accept="application/pdf,image/*"
-                  onChange={handleNewUpgradeDocFileChange}
-                  className="text-[11px]"
-                />
+                    </div>
+                  );
+                })}
               </div>
-              <div
-                onDragOver={handleNewUpgradeDocDragOver}
-                onDrop={handleNewUpgradeDocDrop}
-                className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center text-[11px]"
+            )}
+
+            {showAddServiceForm && (
+              <form
+                onSubmit={handleAddService}
+                className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
               >
-                Drag &amp; drop file here (optional)
-              </div>
-              {newUpgradeDocFile && (
-                <p className="text-[11px] text-slate-700">
-                  Selected: {newUpgradeDocFile.name}
-                </p>
-              )}
-            </div>
-
-            <div className="mt-2 flex justify-end">
-              <button
-                type="submit"
-                disabled={savingUpgrade}
-                className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
-              >
-                {savingUpgrade ? 'Saving…' : 'Add upgrade'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {/* Home service history */}
-      <div className="space-y-3 rounded border bg-white p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold">
-              Home service history
-            </p>
-            <p className="text-[11px] text-slate-500">
-              Boiler service, chimney sweep, electrical checks – like a car
-              service book for your home.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white"
-            onClick={() => setShowAddServiceForm((prev) => !prev)}
-          >
-            {showAddServiceForm ? 'Close form' : 'Add service'}
-          </button>
-        </div>
-
-        {services.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            No services recorded yet.
-          </p>
-        ) : (
-          <div className="space-y-2 text-sm">
-            {services.map((s: Service) => {
-              const docs = serviceDocsById[s.id] || [];
-              const showDocForm = serviceDocTargetId === s.id;
-
-              return (
-                <div
-                  key={s.id}
-                  className="space-y-2 rounded border bg-slate-50 p-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">
-                        {s.service_type || 'Service'}
-                      </p>
-                      {s.description && (
-                        <p className="text-xs text-slate-600">
-                          {s.description}
-                        </p>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500">
-                        <span>{formatDate(s.performed_date)}</span>
-                        <span>
-                          {formatMoney(
-                            s.cost_amount,
-                            s.cost_currency
-                          )}
-                        </span>
-                        {s.provider_name && (
-                          <span>by {s.provider_name}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 text-[11px]">
-                      {docs.length > 0 && (
-                        <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-700">
-                          📄 {docs.length} doc
-                          {docs.length > 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {docs.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      {docs.map((d: AssetDocument) => (
-                        <div
-                          key={d.id}
-                          className="flex items-center gap-2 rounded-full border bg-white px-2 py-1"
-                        >
-                          <span className="text-[11px]">📄</span>
-                          <a
-                            href={d.file_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="max-w-[160px] truncate text-[11px] text-sky-700 underline"
-                          >
-                            {d.notes || 'Document'}
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDocument(d.id)}
-                            className="text-[11px] text-red-600"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mt-1">
-                    {!showDocForm && (
-                      <button
-                        type="button"
-                        className="text-[11px] text-sky-700 underline"
-                        onClick={() => setServiceDocTargetId(s.id)}
-                      >
-                        Attach document
-                      </button>
-                    )}
-                  </div>
-
-                  {showDocForm && (
-                    <form
-                      onSubmit={handleAddServiceDocument}
-                      className="mt-2 flex flex-col gap-2 rounded border border-dashed border-slate-300 bg-slate-100 p-2 text-[11px]"
-                    >
-                      <div className="flex flex-col gap-2 md:flex-row">
-                        <input
-                          type="text"
-                          value={serviceDocNotes}
-                          onChange={(e) =>
-                            setServiceDocNotes(e.target.value)
-                          }
-                          placeholder="Label for document"
-                          className="w-full rounded border px-2 py-1.5"
-                        />
-                        <input
-                          type="file"
-                          accept="application/pdf,image/*"
-                          onChange={handleServiceDocFileChange}
-                          className="text-xs"
-                        />
-                      </div>
-                      {serviceDocFile && (
-                        <p className="text-[11px] text-slate-700">
-                          Selected: {serviceDocFile.name}
-                        </p>
-                      )}
-                      <div
-                        onDragOver={handleServiceDocDragOver}
-                        onDrop={handleServiceDocDrop}
-                        className="rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1 text-center"
-                      >
-                        Drag &amp; drop file here (optional)
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          className="rounded border px-3 py-1.5"
-                          onClick={() => {
-                            setServiceDocTargetId(null);
-                            setServiceDocFile(null);
-                            setServiceDocNotes('');
-                          }}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={
-                            savingServiceDoc || !serviceDocFile
-                          }
-                          className="rounded bg-black px-3 py-1.5 font-medium text-white disabled:bg-slate-500"
-                        >
-                          {savingServiceDoc ? 'Saving…' : 'Add'}
-                        </button>
-                      </div>
-                    </form>
-                  )}
+                <p className="font-medium text-slate-700">Add a service</p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <input
+                    type="text"
+                    value={serviceType}
+                    onChange={(e) => setServiceType(e.target.value)}
+                    required
+                    placeholder="e.g. Boiler service"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={serviceProvider}
+                    onChange={(e) =>
+                      setServiceProvider(e.target.value)
+                    }
+                    placeholder="Provider (optional)"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
                 </div>
-              );
-            })}
+                <div className="grid gap-2 md:grid-cols-3">
+                  <input
+                    type="date"
+                    value={serviceDate}
+                    onChange={(e) => setServiceDate(e.target.value)}
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="number"
+                    value={serviceCost}
+                    onChange={(e) => setServiceCost(e.target.value)}
+                    placeholder="Cost"
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={serviceCurrency}
+                    onChange={(e) =>
+                      setServiceCurrency(e.target.value)
+                    }
+                    className="w-full rounded border px-2 py-1.5"
+                  />
+                </div>
+                <textarea
+                  value={serviceDescription}
+                  onChange={(e) =>
+                    setServiceDescription(e.target.value)
+                  }
+                  rows={2}
+                  placeholder="What was done?"
+                  className="w-full rounded border px-2 py-1.5"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingService}
+                    className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+                  >
+                    {savingService ? 'Saving…' : 'Add service'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-        )}
-
-        {showAddServiceForm && (
-          <form
-            onSubmit={handleAddService}
-            className="mt-3 space-y-2 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs"
-          >
-            <p className="font-medium text-slate-700">Add a service</p>
-            <div className="grid gap-2 md:grid-cols-2">
-              <input
-                type="text"
-                value={serviceType}
-                onChange={(e) => setServiceType(e.target.value)}
-                required
-                placeholder="e.g. Boiler service"
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="text"
-                value={serviceProvider}
-                onChange={(e) => setServiceProvider(e.target.value)}
-                placeholder="Provider (optional)"
-                className="w-full rounded border px-2 py-1.5"
-              />
-            </div>
-            <div className="grid gap-2 md:grid-cols-3">
-              <input
-                type="date"
-                value={serviceDate}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="number"
-                value={serviceCost}
-                onChange={(e) => setServiceCost(e.target.value)}
-                placeholder="Cost"
-                className="w-full rounded border px-2 py-1.5"
-              />
-              <input
-                type="text"
-                value={serviceCurrency}
-                onChange={(e) => setServiceCurrency(e.target.value)}
-                className="w-full rounded border px-2 py-1.5"
-              />
-            </div>
-            <textarea
-              value={serviceDescription}
-              onChange={(e) => setServiceDescription(e.target.value)}
-              rows={2}
-              placeholder="What was done?"
-              className="w-full rounded border px-2 py-1.5"
-            />
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={savingService}
-                className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
-              >
-                {savingService ? 'Saving…' : 'Add service'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Asset-level Key documents */}
       <div className="space-y-3 rounded border bg-white p-4">
