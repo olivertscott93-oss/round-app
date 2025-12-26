@@ -253,6 +253,9 @@ export default function AssetDetailPage() {
     string | null
   >(null);
 
+  // Action engine (demo)
+  const [selectedAction, setSelectedAction] = useState<string | null>(null);
+
   // Add-upgrade form
   const [upgradeTitle, setUpgradeTitle] = useState('');
   const [upgradeDescription, setUpgradeDescription] = useState('');
@@ -2316,6 +2319,77 @@ export default function AssetDetailPage() {
             )}
           </>
         )}
+      </div>
+
+      {/* Action engine (demo) */}
+      <div className="space-y-3 rounded border bg-white p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold">Action engine (demo)</p>
+            <p className="text-[11px] text-slate-500">
+              Sell, insure, refurbish, donate – the actions Round could trigger
+              once it really knows this asset.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 text-xs">
+          {[
+            { key: 'sell', label: 'Sell / list' },
+            { key: 'insure', label: 'Insure / protect' },
+            { key: 'repair', label: 'Repair / refurbish' },
+            { key: 'donate', label: 'Donate / rehome' },
+          ].map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              onClick={() => setSelectedAction(action.key)}
+              className={`rounded-full border px-3 py-1.5 ${
+                selectedAction === action.key
+                  ? 'bg-black text-white border-black'
+                  : 'border-slate-300 bg-slate-50 text-slate-800'
+              }`}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-2 text-[11px] text-slate-600">
+          {!selectedAction && (
+            <p>
+              Pick an action to see how Round could connect this asset to
+              marketplaces, insurers or service partners.
+            </p>
+          )}
+          {selectedAction === 'sell' && (
+            <p>
+              Round (demo) would pre-fill a listing using your asset details and
+              documents, and compare real resale prices to suggest a fair asking
+              price.
+            </p>
+          )}
+          {selectedAction === 'insure' && (
+            <p>
+              Round (demo) would package purchase proofs, valuations and photos
+              into one sharable pack for insurers, so you&apos;re covered at the
+              right level.
+            </p>
+          )}
+          {selectedAction === 'repair' && (
+            <p>
+              Round (demo) would use brand/model and service history to suggest
+              approved repairers or refurbishment partners and estimate likely
+              costs.
+            </p>
+          )}
+          {selectedAction === 'donate' && (
+            <p>
+              Round (demo) would match this asset to relevant donation / reuse
+              channels, helping it find a second life instead of landfill.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Asset-level key documents */}
