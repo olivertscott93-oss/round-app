@@ -9,7 +9,7 @@ import React, {
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-// Keeping these loose while the schema is evolving
+// Keep these loose while schema evolves
 type Asset = any;
 type Upgrade = any;
 type Service = any;
@@ -188,9 +188,8 @@ function computeRoundLoopStatus(
   docs: AssetDocument[],
   valuations: Valuation[]
 ): RoundLoopStatus {
-  const categoryName = getCategoryName(asset);
-
   const importDone = !!asset.id;
+  const categoryName = getCategoryName(asset);
 
   const categoriseDone = !!categoryName;
 
@@ -247,6 +246,12 @@ export default function AssetDetailPage() {
   const [receiptDemoMessage, setReceiptDemoMessage] = useState<string | null>(
     null
   );
+
+  // Demo valuation refresh
+  const [refreshingValuation, setRefreshingValuation] = useState(false);
+  const [valuationDemoMessage, setValuationDemoMessage] = useState<
+    string | null
+  >(null);
 
   // Add-upgrade form
   const [upgradeTitle, setUpgradeTitle] = useState('');
@@ -319,7 +324,6 @@ export default function AssetDetailPage() {
       }
 
       try {
-        // Main asset
         const { data: assetData, error: assetError } = await supabase
           .from('assets')
           .select(
@@ -363,7 +367,6 @@ export default function AssetDetailPage() {
 
         setAsset(assetData as Asset);
 
-        // Upgrades
         const { data: upgradesData } = await supabase
           .from('asset_upgrades')
           .select('*')
@@ -372,7 +375,6 @@ export default function AssetDetailPage() {
 
         if (upgradesData) setUpgrades(upgradesData as Upgrade[]);
 
-        // Services
         const { data: servicesData } = await supabase
           .from('asset_services')
           .select('*')
@@ -381,7 +383,6 @@ export default function AssetDetailPage() {
 
         if (servicesData) setServices(servicesData as Service[]);
 
-        // Documents
         const { data: docsData } = await supabase
           .from('asset_documents')
           .select('*')
@@ -390,7 +391,6 @@ export default function AssetDetailPage() {
 
         if (docsData) setDocuments(docsData as AssetDocument[]);
 
-        // Valuations
         const { data: valuationsData } = await supabase
           .from('valuations')
           .select(
@@ -407,7 +407,6 @@ export default function AssetDetailPage() {
 
         if (valuationsData) setValuations(valuationsData as Valuation[]);
 
-        // Most recent receipt AI job (if any)
         const { data: jobData } = await supabase
           .from('receipt_ai_jobs')
           .select('*')
@@ -418,7 +417,6 @@ export default function AssetDetailPage() {
 
         if (jobData) {
           setReceiptJob(jobData as any);
-          // Optional: show a short note about last run
           setReceiptDemoMessage(
             'Last demo recognition is stored for this asset. Future Round will re-use this structured data.'
           );
@@ -482,7 +480,7 @@ export default function AssetDetailPage() {
     }
   };
 
-  // DEMO: Recognise from receipt
+  // DEMO: recognise from receipt
   const handleRecogniseFromReceipt = async () => {
     if (!asset || !asset.receipt_url) return;
 
@@ -510,7 +508,7 @@ export default function AssetDetailPage() {
         .insert({
           asset_id: asset.id,
           receipt_url: asset.receipt_url,
-          status: 'completed', // in real life: start as 'pending'
+          status: 'completed',
           extracted_json: fakeExtracted,
         })
         .select('*')
@@ -526,9 +524,12 @@ export default function AssetDetailPage() {
       if (data) {
         setReceiptJob(data as any);
 
-        const identityBit = isHome
+        const isHomeAsset = isHome;
+        const identityBit = isHomeAsset
           ? asset.title || 'this property'
-          : (asset.brand || '') + ' ' + (asset.model_name || '');
+          : `${asset.brand || ''} ${asset.model_name || ''}`.trim() ||
+            'this asset';
+
         const priceBit =
           fakeExtracted.purchase_price != null
             ? formatMoney(
@@ -538,8 +539,7 @@ export default function AssetDetailPage() {
             : 'an unknown amount';
 
         setReceiptDemoMessage(
-          `Round (demo) reads this receipt as ${identityBit.trim() ||
-            'an asset'} at around ${priceBit}. In a full version, this data would auto-fill the asset and feed live valuations.`
+          `Round (demo) reads this receipt as ${identityBit} at around ${priceBit}. In a full version, this data would auto-fill the asset and feed live valuations.`
         );
       }
     } catch (err: any) {
@@ -554,7 +554,129 @@ export default function AssetDetailPage() {
     }
   };
 
-  // Upgrades – new upgrade form
+  // DEMO: valuation refresh
+  const handleDemoValuationRefresh = async () => {
+    if (!asset) return;
+
+    setError(null);
+    setRefreshingValuation(true);
+    setValuationDemoMessage(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const categoryName = getCategoryName(asset);
+      const isHome = isHomeCategoryName(categoryName);
+
+      const base =
+        asset.current_estimated_value ??
+        asset.purchase_price ??
+        null;
+
+      if (base == null) {
+        setValuationDemoMessage(
+          'Round needs at least a purchase or current value to simulate a refresh.'
+        );
+        setRefreshingValuation(false);
+        return;
+      }
+
+      let factor = 1;
+      let narrative = '';
+
+      if (isHome) {
+        factor = 1.12; // +12% demo uplift
+        narrative =
+          'For homes, Round (demo) assumes moderate appreciation vs purchase price.';
+      } else {
+        factor = 0.7; // -30% demo drop
+        narrative =
+          'For most personal assets, Round (demo) assumes some depreciation over time.';
+      }
+
+      const newValue = Math.round(base * factor);
+      const currency =
+        asset.estimate_currency || asset.purchase_currency || 'GBP';
+
+      const { data, error } = await supabase
+        .from('valuations')
+        .insert({
+          asset_id: asset.id,
+          requested_by: user.id,
+          valuation_source: 'Round demo — auto refresh',
+          suggested_value: newValue,
+          currency,
+          raw_data_json: {
+            demo: true,
+            base_value: base,
+            factor,
+            is_home: isHome,
+          },
+        })
+        .select(
+          `
+          id,
+          valuation_source,
+          suggested_value,
+          currency,
+          created_at
+        `
+        )
+        .maybeSingle();
+
+      if (error) {
+        console.error(error);
+        setError(error.message || 'Could not create valuation.');
+        setRefreshingValuation(false);
+        return;
+      }
+
+      if (data) {
+        const inserted = data as Valuation;
+
+        setValuations((prev) => [inserted, ...prev]);
+        setAsset((prev: Asset | null) =>
+          prev
+            ? {
+                ...prev,
+                current_estimated_value: newValue,
+                estimate_currency: currency,
+              }
+            : prev
+        );
+
+        const line = isHome
+          ? `Round (demo) has nudged this home's estimated value to ${formatMoney(
+              newValue,
+              currency
+            )} based on a simple appreciation rule.`
+          : `Round (demo) has refreshed this asset's estimated value to ${formatMoney(
+              newValue,
+              currency
+            )} using a simple depreciation rule.`;
+
+        setValuationDemoMessage(`${line} ${narrative}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong refreshing the valuation.'
+      );
+    } finally {
+      setRefreshingValuation(false);
+    }
+  };
+
+  // === Upgrades & services & docs handlers (unchanged from our last version) ===
 
   const handleNewUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -619,7 +741,6 @@ export default function AssetDetailPage() {
       } else {
         const insertedUpgrade = data as Upgrade;
 
-        // Optional document attached at creation
         if (newUpgradeDocFile) {
           const fileUrl = await uploadFileToBucket(
             newUpgradeDocFile,
@@ -652,7 +773,6 @@ export default function AssetDetailPage() {
         setUpgrades((prev) => [insertedUpgrade, ...prev]);
       }
 
-      // Reset form
       setUpgradeTitle('');
       setUpgradeDescription('');
       setUpgradeDate('');
@@ -673,8 +793,6 @@ export default function AssetDetailPage() {
       setSavingUpgrade(false);
     }
   };
-
-  // Edit upgrade
 
   const startEditUpgrade = (u: Upgrade) => {
     setEditingUpgradeId(u.id);
@@ -826,8 +944,6 @@ export default function AssetDetailPage() {
     }
   };
 
-  // Services
-
   const handleAddService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!asset) return;
@@ -895,8 +1011,6 @@ export default function AssetDetailPage() {
       setSavingService(false);
     }
   };
-
-  // Asset-level docs
 
   const handleAssetDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -981,8 +1095,6 @@ export default function AssetDetailPage() {
     }
   };
 
-  // Upgrade-level docs (existing upgrades)
-
   const handleUpgradeDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) setUpgradeDocFile(file);
@@ -1065,8 +1177,6 @@ export default function AssetDetailPage() {
       setSavingUpgradeDoc(false);
     }
   };
-
-  // Service-level docs (existing services)
 
   const handleServiceDocFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1182,7 +1292,6 @@ export default function AssetDetailPage() {
       : 'Identity unclear';
 
   const roundReady = computeRoundReady(asset);
-
   const loopStatus = computeRoundLoopStatus(
     asset,
     identityLevel,
@@ -1256,8 +1365,9 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* Identity / Round readiness / Values / Loop */}
+      {/* Identity / Round Readiness / Values / Loop */}
       <div className="grid gap-4 md:grid-cols-4">
+        {/* Identity */}
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">Identity</p>
           <span
@@ -1279,6 +1389,7 @@ export default function AssetDetailPage() {
           </p>
         </div>
 
+        {/* Round readiness */}
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">
             Round readiness
@@ -1301,6 +1412,7 @@ export default function AssetDetailPage() {
           </p>
         </div>
 
+        {/* Value snapshot + refresh */}
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">
             Value snapshot
@@ -1320,12 +1432,27 @@ export default function AssetDetailPage() {
               )}
             </span>
           </p>
-          <p className="text-[11px] text-slate-500">
+          <button
+            type="button"
+            onClick={handleDemoValuationRefresh}
+            disabled={refreshingValuation}
+            className="mt-2 rounded bg-black px-3 py-1.5 text-[11px] font-medium text-white disabled:bg-slate-500"
+          >
+            {refreshingValuation
+              ? 'Refreshing valuation…'
+              : 'Refresh valuation (demo)'}
+          </button>
+          <p className="text-[11px] text-slate-500 mt-1">
             Manual for now; future Round will keep this live in the background.
           </p>
+          {valuationDemoMessage && (
+            <p className="mt-1 text-[11px] text-slate-600">
+              {valuationDemoMessage}
+            </p>
+          )}
         </div>
 
-        {/* Round loop status */}
+        {/* Round loop */}
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">Round loop</p>
           <div className="space-y-1 text-[10px] text-slate-700">
@@ -1384,7 +1511,7 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Details */}
+      {/* Details cards (home vs other) */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2 rounded border bg-white p-4">
           <p className="text-xs font-semibold text-slate-600">
@@ -1515,10 +1642,10 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* Home-only sections */}
+      {/* Home-only sections: Upgrades & Improvements + Home Service History */}
       {isHome && (
         <>
-          {/* Upgrades & Improvements */}
+          {/* Upgrades */}
           <div className="space-y-3 rounded border bg-white p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1893,7 +2020,7 @@ export default function AssetDetailPage() {
             )}
           </div>
 
-          {/* Home service history */}
+          {/* Home Service History */}
           <div className="space-y-3 rounded border bg-white p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -2140,7 +2267,7 @@ export default function AssetDetailPage() {
         </>
       )}
 
-      {/* Receipt recognition (demo) */}
+      {/* Receipt recognition demo */}
       <div className="space-y-3 rounded border bg-white p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -2191,7 +2318,7 @@ export default function AssetDetailPage() {
         )}
       </div>
 
-      {/* Asset-level Key documents */}
+      {/* Asset-level key documents */}
       <div className="space-y-3 rounded border bg-white p-4">
         <div className="flex items-center justify-between">
           <div>
