@@ -241,6 +241,13 @@ export default function AssetDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Receipt recognition (demo)
+  const [receiptJob, setReceiptJob] = useState<any | null>(null);
+  const [recognisingReceipt, setRecognisingReceipt] = useState(false);
+  const [receiptDemoMessage, setReceiptDemoMessage] = useState<string | null>(
+    null
+  );
+
   // Add-upgrade form
   const [upgradeTitle, setUpgradeTitle] = useState('');
   const [upgradeDescription, setUpgradeDescription] = useState('');
@@ -399,6 +406,23 @@ export default function AssetDetailPage() {
           .order('created_at', { ascending: false });
 
         if (valuationsData) setValuations(valuationsData as Valuation[]);
+
+        // Most recent receipt AI job (if any)
+        const { data: jobData } = await supabase
+          .from('receipt_ai_jobs')
+          .select('*')
+          .eq('asset_id', assetId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (jobData) {
+          setReceiptJob(jobData as any);
+          // Optional: show a short note about last run
+          setReceiptDemoMessage(
+            'Last demo recognition is stored for this asset. Future Round will re-use this structured data.'
+          );
+        }
       } catch (err) {
         console.error(err);
         setError('Something went wrong loading this asset.');
@@ -455,6 +479,78 @@ export default function AssetDetailPage() {
     } catch (err) {
       console.error(err);
       setError('Something went wrong deleting the document.');
+    }
+  };
+
+  // DEMO: Recognise from receipt
+  const handleRecogniseFromReceipt = async () => {
+    if (!asset || !asset.receipt_url) return;
+
+    setError(null);
+    setRecognisingReceipt(true);
+    setReceiptDemoMessage(null);
+
+    try {
+      const categoryName = getCategoryName(asset);
+      const isHome = isHomeCategoryName(categoryName);
+
+      const fakeExtracted = {
+        merchant: isHome ? 'Unknown estate agent (demo)' : 'Online retailer (demo)',
+        category: categoryName,
+        brand: asset.brand ?? null,
+        model_name: asset.model_name ?? null,
+        purchase_price: asset.purchase_price ?? null,
+        purchase_currency: asset.purchase_currency ?? 'GBP',
+        purchase_date: asset.purchase_date ?? null,
+        is_home: isHome,
+      };
+
+      const { data, error } = await supabase
+        .from('receipt_ai_jobs')
+        .insert({
+          asset_id: asset.id,
+          receipt_url: asset.receipt_url,
+          status: 'completed', // in real life: start as 'pending'
+          extracted_json: fakeExtracted,
+        })
+        .select('*')
+        .maybeSingle();
+
+      if (error) {
+        console.error(error);
+        setError('Could not create receipt recognition job.');
+        setRecognisingReceipt(false);
+        return;
+      }
+
+      if (data) {
+        setReceiptJob(data as any);
+
+        const identityBit = isHome
+          ? asset.title || 'this property'
+          : (asset.brand || '') + ' ' + (asset.model_name || '');
+        const priceBit =
+          fakeExtracted.purchase_price != null
+            ? formatMoney(
+                fakeExtracted.purchase_price,
+                fakeExtracted.purchase_currency
+              )
+            : 'an unknown amount';
+
+        setReceiptDemoMessage(
+          `Round (demo) reads this receipt as ${identityBit.trim() ||
+            'an asset'} at around ${priceBit}. In a full version, this data would auto-fill the asset and feed live valuations.`
+        );
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        typeof err?.message === 'string'
+          ? err.message
+          : 'Something went wrong running the demo.'
+      );
+    } finally {
+      setRecognisingReceipt(false);
     }
   };
 
@@ -2043,6 +2139,57 @@ export default function AssetDetailPage() {
           </div>
         </>
       )}
+
+      {/* Receipt recognition (demo) */}
+      <div className="space-y-3 rounded border bg-white p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold">Receipt recognition (demo)</p>
+            <p className="text-[11px] text-slate-500">
+              This is where Round will read receipts, recognise the asset and
+              pre-fill details.
+            </p>
+          </div>
+          {asset.receipt_url && (
+            <button
+              type="button"
+              onClick={handleRecogniseFromReceipt}
+              disabled={recognisingReceipt}
+              className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-500"
+            >
+              {recognisingReceipt
+                ? 'Recognising…'
+                : 'Recognise from receipt (demo)'}
+            </button>
+          )}
+        </div>
+
+        {!asset.receipt_url ? (
+          <p className="text-xs text-slate-500">
+            Upload a receipt PDF to this asset to let Round start recognising
+            it. For now, add a receipt from the asset edit screen.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-slate-600">
+              A receipt is attached. In the full version, Round would send this
+              to an AI model, extract brand, model, price and date, and then
+              suggest updates to this asset and its valuation.
+            </p>
+            {receiptDemoMessage && (
+              <div className="mt-2 rounded bg-slate-50 p-2 text-[11px] text-slate-700">
+                {receiptDemoMessage}
+              </div>
+            )}
+            {receiptJob && (
+              <div className="mt-2 text-[10px] text-slate-500">
+                Last demo run: {formatDate(receiptJob.created_at)} · Status:{' '}
+                <span className="font-medium">{receiptJob.status}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Asset-level Key documents */}
       <div className="space-y-3 rounded border bg-white p-4">
